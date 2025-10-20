@@ -1,0 +1,12 @@
+{
+  "buildCommand": "npm run build:all",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "outputDirectory": ".next",
+  "rewrites": [
+    { "source": "/docs", "destination": "/docs/index.html" },
+    { "source": "/docs/:path*", "destination": "/docs/index.html" }
+  ]
+}
+
