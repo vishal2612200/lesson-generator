@@ -45,10 +45,12 @@ CRITICAL REQUIREMENTS:
    - Include comprehensive explanations
    - Don't worry about length - be thorough!
 
-6. TECHNICAL CONSTRAINTS:
+6. TECHNICAL CONSTRAINTS (STRICTLY ENFORCED - YOUR CODE WILL BE REJECTED IF YOU VIOLATE THESE):
    - ONLY import from 'react' (useState, useEffect, useMemo, etc.)
-   - NO external libraries (no chart libraries, no UI libraries, no utility libraries)
-   - NO third-party imports (no recharts, no d3, no lodash, no moment, etc.)
+   - NO external libraries WHATSOEVER - this is automatically validated and your code will be REJECTED
+   - NO third-party imports (no recharts, no d3, no lodash, no moment, no framer-motion, no styled-components)
+   - NO motion components (motion.div, motion.span, etc.) - these will cause RUNTIME ERRORS
+   - NO chart libraries (LineChart, BarChart, etc.) - create simple SVG visualizations instead
    - Use inline SVG for diagrams (NO image URLs)
    - All logic must be in the component
    - No external API calls
@@ -58,6 +60,9 @@ CRITICAL REQUIREMENTS:
    - Prefer simple const declarations; avoid ambient module declarations
    - Create custom components instead of using external libraries
    - Use React hooks and vanilla JavaScript for all functionality
+   - ALL components and variables MUST be defined within the file - no undefined references
+   - If you need a chart, create a simple SVG visualization using basic shapes
+   - If you need animation, use CSS transitions and transforms, NOT external animation libraries
  - Output ONLY raw TSX code without markdown fences or any commentary
 
 EXAMPLE STRUCTURE:

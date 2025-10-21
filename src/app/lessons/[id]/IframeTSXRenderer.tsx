@@ -210,9 +210,18 @@ function buildSandboxHtml(code: string, iframeId: string): string {
   let processedCode = code.replace(/'use client';\s*/, '').replace(/^'use client';/, '')
   
   // Remove all import statements - they cause issues in the sandbox
+  // Be more precise to avoid leaving partial statements
   processedCode = processedCode.replace(/import\s+.*?from\s+['"][^'"]+['"];?\s*/g, '')
   processedCode = processedCode.replace(/import\s*{\s*[^}]*\s*}\s*from\s*['"][^'"]+['"];?\s*/g, '')
   processedCode = processedCode.replace(/import\s+['"][^'"]+['"];?\s*/g, '')
+  
+  // Clean up any orphaned import fragments that might be left behind
+  processedCode = processedCode.replace(/^[^;]*from\s+['"][^'"]+['"];?\s*/gm, '')
+  processedCode = processedCode.replace(/^[^;]*,\s*{[^}]*}\s*from\s+['"][^'"]+['"];?\s*/gm, '')
+  
+  // Fix specific case where import keyword is missing but rest of statement remains
+  processedCode = processedCode.replace(/^React,\s*{\s*[^}]*\s*}\s*from\s+['"][^'"]+['"];?\s*/gm, '')
+  processedCode = processedCode.replace(/^[A-Za-z_$][A-Za-z0-9_$]*,\s*{\s*[^}]*\s*}\s*from\s+['"][^'"]+['"];?\s*/gm, '')
   
   // Handle export default - convert to regular function/const declaration and assign to global
   processedCode = processedCode.replace(/export\s+default\s+function\s+(\w+)/g, 'function $1')
@@ -284,6 +293,7 @@ function buildSandboxHtml(code: string, iframeId: string): string {
   
   console.log('Detected component name:', componentName);
   console.log('Processed code preview:', processedCode.substring(0, 500));
+  console.log('Original code preview:', code.substring(0, 500));
   
   // Add assignment to global scope for const declarations
         if (processedCode.includes(`const ${componentName}`)) {
@@ -356,8 +366,11 @@ function buildSandboxHtml(code: string, iframeId: string): string {
           // Also try to find chart components and other React components
           const chartComponents = ['LineChart', 'BarChart', 'PieChart', 'AreaChart', 'ScatterChart', 'RadarChart', 'ComposedChart', 'XAxis', 'YAxis', 'CartesianGrid', 'Tooltip', 'Legend', 'ResponsiveContainer'];
           
+          // Animation components
+          const animationComponents = ['motion'];
+          
           // Combine all variables to check
-          const allVars = [...commonVars, ...chartComponents];
+          const allVars = [...commonVars, ...chartComponents, ...animationComponents];
           
           allVars.forEach(varName => {
             try {
@@ -424,7 +437,24 @@ function buildSandboxHtml(code: string, iframeId: string): string {
           CartesianGrid: (props) => React.createElement('div', { style: { display: 'none' } }),
           Tooltip: (props) => React.createElement('div', { style: { display: 'none' } }),
           Legend: (props) => React.createElement('div', { style: { display: 'none' } }),
-          ResponsiveContainer: (props) => React.createElement('div', props, props.children)
+          ResponsiveContainer: (props) => React.createElement('div', props, props.children),
+          // Mock animation components
+          motion: {
+            div: (props) => React.createElement('div', props, props.children),
+            span: (props) => React.createElement('span', props, props.children),
+            p: (props) => React.createElement('p', props, props.children),
+            h1: (props) => React.createElement('h1', props, props.children),
+            h2: (props) => React.createElement('h2', props, props.children),
+            h3: (props) => React.createElement('h3', props, props.children),
+            button: (props) => React.createElement('button', props, props.children),
+            section: (props) => React.createElement('section', props, props.children),
+            article: (props) => React.createElement('article', props, props.children),
+            main: (props) => React.createElement('main', props, props.children),
+            header: (props) => React.createElement('header', props, props.children),
+            footer: (props) => React.createElement('footer', props, props.children),
+            nav: (props) => React.createElement('nav', props, props.children),
+            aside: (props) => React.createElement('aside', props, props.children)
+          }
         }
         
         // Execute the transformed code
@@ -435,12 +465,48 @@ function buildSandboxHtml(code: string, iframeId: string): string {
         const resolverFn = new Function(...Object.keys(safeGlobals), globalVarResolver)
         resolverFn(...Object.values(safeGlobals))
         
+        // Scan for undefined components and create stubs
+        const componentReferences = transformed.match(/<([A-Z][a-zA-Z0-9]*)/g) || [];
+        const createElementReferences = transformed.match(/createElement\\(([A-Z][a-zA-Z0-9]*)[,\\)]/g) || [];
+        
+        const allComponentNames = new Set();
+        componentReferences.forEach(match => {
+          const name = match.substring(1); // Remove '<'
+          allComponentNames.add(name);
+        });
+        createElementReferences.forEach(match => {
+          const name = match.replace(/createElement\\(/, '').replace(/[,\\)]/, '');
+          allComponentNames.add(name);
+        });
+        
+        console.log('Component references found:', Array.from(allComponentNames));
+        
+        // Create stub components for any that are undefined
+        allComponentNames.forEach(compName => {
+          if (!window[compName] && typeof window[compName] === 'undefined') {
+            console.warn('Creating stub for undefined component:', compName);
+            window[compName] = (props) => React.createElement('div', {
+              style: {
+                padding: '10px',
+                border: '1px dashed orange',
+                borderRadius: '4px',
+                backgroundColor: '#fff9e6',
+                margin: '5px 0'
+              }
+            }, \`Component "\${compName}" not found - using stub\`);
+          }
+        });
+        
         // Get the component from the global scope with better debugging
         console.log('Looking for component:', '${componentName}');
         console.log('Available window properties:', Object.keys(window).filter(k => typeof window[k] === 'function'));
+        console.log('All window properties:', Object.keys(window));
         
         let componentToRender = null;
         const Comp = window['${componentName}']
+        
+        console.log('Component lookup result:', Comp);
+        console.log('Component type:', typeof Comp);
         
         if (Comp && typeof Comp === 'function') {
           // Component found successfully
@@ -459,14 +525,109 @@ function buildSandboxHtml(code: string, iframeId: string): string {
             componentToRender = window[possibleComponents[0]];
             console.log('Using fallback component:', possibleComponents[0]);
           } else {
-            throw new Error('Component not found or not a function: ${componentName}. Available globals: ' + Object.keys(window).filter(k => typeof window[k] === 'function').join(', '))
+            console.warn('No components found, creating fallback component');
+            // Create a fallback component
+            componentToRender = () => React.createElement('div', { 
+              style: { 
+                padding: '20px', 
+                border: '2px dashed #ccc', 
+                borderRadius: '8px', 
+                textAlign: 'center',
+                backgroundColor: '#f9f9f9',
+                color: '#666'
+              } 
+            }, 'Component not found - using fallback');
           }
         }
+        
+        // Safety check - ensure we have a valid component
+        if (!componentToRender || typeof componentToRender !== 'function') {
+          console.error('No valid component found to render');
+          console.log('componentToRender:', componentToRender);
+          console.log('Available window properties:', Object.keys(window).filter(k => typeof window[k] === 'function'));
+          throw new Error('No valid component found to render. Component is: ' + typeof componentToRender);
+        }
           
-          // Render the component
+          // Create an Error Boundary class component
+        class ErrorBoundary extends React.Component {
+          constructor(props) {
+            super(props);
+            this.state = { hasError: false, error: null, errorInfo: null };
+          }
+          
+          static getDerivedStateFromError(error) {
+            return { hasError: true };
+          }
+          
+          componentDidCatch(error, errorInfo) {
+            console.error('ErrorBoundary caught error:', error, errorInfo);
+            this.setState({ error, errorInfo });
+          }
+          
+          render() {
+            if (this.state.hasError) {
+              return React.createElement('div', {
+                style: {
+                  padding: '20px',
+                  color: 'red',
+                  fontFamily: 'monospace',
+                  border: '2px solid red',
+                  borderRadius: '8px',
+                  backgroundColor: '#fff0f0'
+                }
+              }, [
+                React.createElement('h3', { key: 'title' }, 'Component Rendering Error'),
+                React.createElement('p', { key: 'message' }, String(this.state.error?.message || this.state.error || 'Unknown error')),
+                React.createElement('p', { key: 'hint', style: { fontSize: '0.9em', color: '#666' } }, 
+                  'This usually means a variable or component inside the lesson component is undefined. Check the console for details.')
+              ]);
+            }
+            
+            return this.props.children;
+          }
+        }
+        
+        // Create a safe wrapper component that catches rendering errors
+        const SafeWrapper = () => {
+          try {
+            return React.createElement(componentToRender);
+          } catch (error) {
+            console.error('Error rendering component:', error);
+            return React.createElement('div', {
+              style: {
+                padding: '20px',
+                color: 'red',
+                fontFamily: 'monospace',
+                border: '2px solid red',
+                borderRadius: '8px',
+                backgroundColor: '#fff0f0'
+              }
+            }, [
+              React.createElement('h3', { key: 'title' }, 'Component Rendering Error'),
+              React.createElement('p', { key: 'message' }, String(error.message || error)),
+              React.createElement('p', { key: 'hint', style: { fontSize: '0.9em', color: '#666' } }, 
+                'This usually means a variable or component inside the lesson component is undefined.')
+            ]);
+          }
+        };
+        
+        // Render the component with error boundary
+        console.log('About to render component:', componentToRender);
         const root = ReactDOM.createRoot(document.getElementById('root'))
-        root.render(React.createElement(componentToRender))
-        console.log('Component rendered successfully')
+        
+        try {
+          // Wrap SafeWrapper in ErrorBoundary
+          const wrappedComponent = React.createElement(
+            ErrorBoundary,
+            {},
+            React.createElement(SafeWrapper)
+          );
+          root.render(wrappedComponent);
+          console.log('Component rendered successfully');
+        } catch (renderError) {
+          console.error('Error during component render:', renderError);
+          throw renderError;
+        }
         } catch (e) {
           console.error('Iframe render error:', e)
         document.getElementById('root').innerHTML = \`

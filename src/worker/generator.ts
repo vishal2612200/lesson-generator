@@ -449,25 +449,111 @@ function extractTypeScriptCode(response: string): string {
         errors.push(`Dynamic imports detected: ${dynamicImports.join(', ')}`)
       }
       
-      // Check for common external library usage patterns
+      // Check for common external library usage patterns (comprehensive list)
       const externalLibraryPatterns = [
+        // Chart libraries
         /recharts/i,
         /d3/i,
-        /lodash/i,
-        /moment/i,
-        /dayjs/i,
         /chart\.js/i,
+        /chartjs/i,
+        /highcharts/i,
+        /plotly/i,
+        /victory/i,
+        /nivo/i,
+        /visx/i,
+        
+        // Animation libraries
         /framer-motion/i,
+        /react-spring/i,
+        /gsap/i,
+        /anime\.js/i,
+        
+        // UI libraries
+        /material-ui/i,
+        /mui/i,
+        /@mui\//i,
+        /antd/i,
+        /ant-design/i,
+        /chakra/i,
+        /chakra-ui/i,
+        /semantic-ui/i,
+        /bootstrap/i,
+        /react-bootstrap/i,
+        /mantine/i,
+        /blueprint/i,
+        /evergreen/i,
+        
+        // Styling libraries
         /styled-components/i,
         /emotion/i,
-        /antd/i,
-        /mui/i,
-        /chakra/i
+        /@emotion\//i,
+        /tailwindcss/i,
+        
+        // Utility libraries
+        /lodash/i,
+        /underscore/i,
+        /ramda/i,
+        /moment/i,
+        /dayjs/i,
+        /date-fns/i,
+        /luxon/i,
+        /axios/i,
+        /fetch/i,
+        /swr/i,
+        /react-query/i,
+        
+        // State management
+        /redux/i,
+        /zustand/i,
+        /jotai/i,
+        /recoil/i,
+        /mobx/i,
+        
+        // Form libraries
+        /formik/i,
+        /react-hook-form/i,
+        /yup/i,
+        /zod/i,
+        
+        // Icons
+        /react-icons/i,
+        /heroicons/i,
+        /font-awesome/i,
+        /feather-icons/i
+      ]
+      
+      // Check for specific component usage without imports
+      const componentUsagePatterns = [
+        /motion\./i,  // motion.div, motion.span, etc.
+        /<motion\./i,  // <motion.div>, <motion.span>, etc.
+        /\bmotion\b/i,  // standalone motion usage
+        /LineChart/i,
+        /BarChart/i,
+        /PieChart/i,
+        /AreaChart/i,
+        /ScatterChart/i,
+        /RadarChart/i,
+        /<Chart\b/i,
+        /Button\s+from/i,  // "Button from '@mui/material'"
+        /Icon\s+from/i
+      ]
+      
+      // Check for common undefined variable patterns
+      // Look for JSX elements that might be undefined
+      const undefinedPatterns = [
+        /<([A-Z][a-zA-Z0-9]*)\s/g,  // JSX components like <ComponentName
+        /React\.createElement\(([A-Z][a-zA-Z0-9]*)[,\)]/g  // React.createElement calls
       ]
       
       for (const pattern of externalLibraryPatterns) {
         if (pattern.test(source)) {
           errors.push(`External library usage detected: ${pattern.source}`)
+        }
+      }
+      
+      for (const pattern of componentUsagePatterns) {
+        if (pattern.test(source)) {
+          errors.push(`External component usage detected: ${pattern.source}`)
         }
       }
       
