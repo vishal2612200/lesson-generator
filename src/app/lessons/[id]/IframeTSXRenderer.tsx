@@ -353,7 +353,13 @@ function buildSandboxHtml(code: string, iframeId: string): string {
           
           const commonVars = ['examples', 'questions', 'steps', 'data', 'items', 'options', 'answers', 'feedback', 'results', 'learningObjectives', 'styles'];
           
-          commonVars.forEach(varName => {
+          // Also try to find chart components and other React components
+          const chartComponents = ['LineChart', 'BarChart', 'PieChart', 'AreaChart', 'ScatterChart', 'RadarChart', 'ComposedChart', 'XAxis', 'YAxis', 'CartesianGrid', 'Tooltip', 'Legend', 'ResponsiveContainer'];
+          
+          // Combine all variables to check
+          const allVars = [...commonVars, ...chartComponents];
+          
+          allVars.forEach(varName => {
             try {
               if (typeof window[varName] === 'undefined') {
                 const value = eval(varName);
@@ -379,6 +385,18 @@ function buildSandboxHtml(code: string, iframeId: string): string {
         console.log('Transformed code:', transformed)
         console.log('Processed code sample:', processedCode.substring(0, 1000))
         
+        // Create mock chart components to handle missing chart libraries
+        const mockChartComponent = (name) => React.createElement('div', { 
+          style: { 
+            padding: '20px', 
+            border: '2px dashed #ccc', 
+            borderRadius: '8px', 
+            textAlign: 'center',
+            backgroundColor: '#f9f9f9',
+            color: '#666'
+          } 
+        }, \`\${name} Component (Chart library not available)\`);
+        
         // Create a safe execution environment
         const safeGlobals = {
           React,
@@ -392,7 +410,21 @@ function buildSandboxHtml(code: string, iframeId: string): string {
           setTimeout: setTimeout,
           clearTimeout: clearTimeout,
           setInterval: setInterval,
-          clearInterval: clearInterval
+          clearInterval: clearInterval,
+          // Mock chart components
+          LineChart: (props) => mockChartComponent('LineChart'),
+          BarChart: (props) => mockChartComponent('BarChart'),
+          PieChart: (props) => mockChartComponent('PieChart'),
+          AreaChart: (props) => mockChartComponent('AreaChart'),
+          ScatterChart: (props) => mockChartComponent('ScatterChart'),
+          RadarChart: (props) => mockChartComponent('RadarChart'),
+          ComposedChart: (props) => mockChartComponent('ComposedChart'),
+          XAxis: (props) => React.createElement('div', { style: { display: 'none' } }),
+          YAxis: (props) => React.createElement('div', { style: { display: 'none' } }),
+          CartesianGrid: (props) => React.createElement('div', { style: { display: 'none' } }),
+          Tooltip: (props) => React.createElement('div', { style: { display: 'none' } }),
+          Legend: (props) => React.createElement('div', { style: { display: 'none' } }),
+          ResponsiveContainer: (props) => React.createElement('div', props, props.children)
         }
         
         // Execute the transformed code

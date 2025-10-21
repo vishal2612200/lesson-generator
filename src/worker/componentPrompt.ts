@@ -46,7 +46,9 @@ CRITICAL REQUIREMENTS:
    - Don't worry about length - be thorough!
 
 6. TECHNICAL CONSTRAINTS:
-   - Only import from 'react' (useState, useEffect, useMemo, etc.)
+   - ONLY import from 'react' (useState, useEffect, useMemo, etc.)
+   - NO external libraries (no chart libraries, no UI libraries, no utility libraries)
+   - NO third-party imports (no recharts, no d3, no lodash, no moment, etc.)
    - Use inline SVG for diagrams (NO image URLs)
    - All logic must be in the component
    - No external API calls
@@ -54,6 +56,8 @@ CRITICAL REQUIREMENTS:
    - className MUST be a normal quoted string (no template literals)
    - Do NOT use string template literals (\`...\`) anywhere unless fully closed and valid
    - Prefer simple const declarations; avoid ambient module declarations
+   - Create custom components instead of using external libraries
+   - Use React hooks and vanilla JavaScript for all functionality
  - Output ONLY raw TSX code without markdown fences or any commentary
 
 EXAMPLE STRUCTURE:

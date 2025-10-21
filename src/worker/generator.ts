@@ -171,6 +171,15 @@ export async function generateLesson(lessonId: string): Promise<void> {
       console.log('LLM Response:', llmResponse.content)
       const typeScriptSource = extractTypeScriptCode(llmResponse.content)
       logJob(lessonId, 'info', 'TypeScript extracted', { length: typeScriptSource.length })
+      
+      // Validate component for external imports
+      const validation = validateComponent(typeScriptSource)
+      if (!validation.isValid) {
+        logJob(lessonId, 'warn', 'Component validation failed', { errors: validation.errors })
+        lastErrors = `Component uses external imports: ${validation.errors.join(', ')}`
+        throw new Error(lastErrors)
+      }
+      
       // Sanitize generated component to avoid common TSX pitfalls
       const sanitizedSource = sanitizeComponent(typeScriptSource)
       const BYTE_LIMIT = Number(process.env.GENERATED_CODE_MAX_BYTES) || 200 * 1024
@@ -418,6 +427,56 @@ function extractTypeScriptCode(response: string): string {
   return response.trim()
 }
 
+    // Validate that component doesn't use external imports
+    function validateComponent(source: string): { isValid: boolean; errors: string[] } {
+      const errors: string[] = []
+      
+      // Check for external imports
+      const externalImports = source.match(/import\s+.*?from\s+['"](?!react)[^'"]*['"]/g)
+      if (externalImports) {
+        errors.push(`External imports detected: ${externalImports.join(', ')}`)
+      }
+      
+      // Check for require statements
+      const requireStatements = source.match(/require\s*\([^)]*\)/g)
+      if (requireStatements) {
+        errors.push(`Require statements detected: ${requireStatements.join(', ')}`)
+      }
+      
+      // Check for dynamic imports
+      const dynamicImports = source.match(/import\s*\([^)]*\)/g)
+      if (dynamicImports) {
+        errors.push(`Dynamic imports detected: ${dynamicImports.join(', ')}`)
+      }
+      
+      // Check for common external library usage patterns
+      const externalLibraryPatterns = [
+        /recharts/i,
+        /d3/i,
+        /lodash/i,
+        /moment/i,
+        /dayjs/i,
+        /chart\.js/i,
+        /framer-motion/i,
+        /styled-components/i,
+        /emotion/i,
+        /antd/i,
+        /mui/i,
+        /chakra/i
+      ]
+      
+      for (const pattern of externalLibraryPatterns) {
+        if (pattern.test(source)) {
+          errors.push(`External library usage detected: ${pattern.source}`)
+        }
+      }
+      
+      return {
+        isValid: errors.length === 0,
+        errors
+      }
+    }
+
     // Best-effort sanitizer to enforce compilable TSX without template literal pitfalls
     function sanitizeComponent(source: string): string {
       let out = source
@@ -428,13 +487,22 @@ function extractTypeScriptCode(response: string): string {
         return inner
       })
 
-      // Remove any non-React imports (e.g., CSS or external libs)
+      // Remove ALL non-React imports aggressively
       // Side-effect imports like: import 'tailwindcss/tailwind.css'
       out = out.replace(/import\s+['"][^'"]+['"];?\s*/g, (m) => {
         return /import\s+['"]react['"];?/.test(m) ? m : ''
       })
       // Normal imports like: import X from 'some-lib' or import { X } from 'some-lib'
       out = out.replace(/import\s+.*?from\s+['"](?!react)[^'"]*['"];?\s*/g, '')
+      
+      // Remove any remaining import statements that might have been missed
+      out = out.replace(/import\s+.*?;?\s*/g, '')
+      
+      // Remove any require statements
+      out = out.replace(/require\s*\([^)]*\)\s*/g, '')
+      
+      // Remove any dynamic imports
+      out = out.replace(/import\s*\([^)]*\)\s*/g, '')
 
       // Replace className={`...`} with className="..." when no interpolation
       out = out.replace(/className=\{`([^`$}]*)`\}/g, 'className="$1"')

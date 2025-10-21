@@ -42,6 +42,12 @@ export async function generateReactComponentFromPlan(enhancedOutline: string, pl
   // Extract TypeScript code from the response
   const typeScriptSource = extractTypeScriptCode(llmResponse.content)
   
+  // Validate component for external imports
+  const validation = validateComponent(typeScriptSource)
+  if (!validation.isValid) {
+    throw new Error(`Component uses external imports: ${validation.errors.join(', ')}`)
+  }
+  
   // Sanitize the component
   const sanitizedSource = sanitizeComponent(typeScriptSource)
   
@@ -67,6 +73,58 @@ function extractTypeScriptCode(response: string): string {
 }
 
 /**
+ * Validate that component doesn't use external imports
+ */
+function validateComponent(source: string): { isValid: boolean; errors: string[] } {
+  const errors: string[] = []
+  
+  // Check for external imports
+  const externalImports = source.match(/import\s+.*?from\s+['"](?!react)[^'"]*['"]/g)
+  if (externalImports) {
+    errors.push(`External imports detected: ${externalImports.join(', ')}`)
+  }
+  
+  // Check for require statements
+  const requireStatements = source.match(/require\s*\([^)]*\)/g)
+  if (requireStatements) {
+    errors.push(`Require statements detected: ${requireStatements.join(', ')}`)
+  }
+  
+  // Check for dynamic imports
+  const dynamicImports = source.match(/import\s*\([^)]*\)/g)
+  if (dynamicImports) {
+    errors.push(`Dynamic imports detected: ${dynamicImports.join(', ')}`)
+  }
+  
+  // Check for common external library usage patterns
+  const externalLibraryPatterns = [
+    /recharts/i,
+    /d3/i,
+    /lodash/i,
+    /moment/i,
+    /dayjs/i,
+    /chart\.js/i,
+    /framer-motion/i,
+    /styled-components/i,
+    /emotion/i,
+    /antd/i,
+    /mui/i,
+    /chakra/i
+  ]
+  
+  for (const pattern of externalLibraryPatterns) {
+    if (pattern.test(source)) {
+      errors.push(`External library usage detected: ${pattern.source}`)
+    }
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors
+  }
+}
+
+/**
  * Sanitize generated component to avoid common TSX pitfalls
  */
 function sanitizeComponent(source: string): string {
@@ -78,12 +136,23 @@ function sanitizeComponent(source: string): string {
     return inner
   })
 
-  // Remove any non-React imports (e.g., CSS or external libs)
-  // Only remove side-effect imports like: import 'tailwindcss/tailwind.css'
-  out = out.replace(/import\s+['"][^'"]*['"];?\s*/g, '')
+  // Remove ALL non-React imports aggressively
+  // Side-effect imports like: import 'tailwindcss/tailwind.css'
+  out = out.replace(/import\s+['"][^'"]*['"];?\s*/g, (m) => {
+    return /import\s+['"]react['"];?/.test(m) ? m : ''
+  })
   
   // Remove external library imports (but keep React)
   out = out.replace(/import\s+.*?from\s+['"](?!react)[^'"]*['"];?\s*/g, '')
+  
+  // Remove any remaining import statements that might have been missed
+  out = out.replace(/import\s+.*?;?\s*/g, '')
+  
+  // Remove any require statements
+  out = out.replace(/require\s*\([^)]*\)\s*/g, '')
+  
+  // Remove any dynamic imports
+  out = out.replace(/import\s*\([^)]*\)\s*/g, '')
 
   // Replace className={`...`} with className="..." when no interpolation
   out = out.replace(/className=\{`([^`$}]*)`\}/g, 'className="$1"')
