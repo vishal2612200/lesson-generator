@@ -217,6 +217,12 @@ function buildSandboxHtml(code: string, iframeId: string): string {
   // Handle export default - convert to regular function/const declaration and assign to global
   processedCode = processedCode.replace(/export\s+default\s+function\s+(\w+)/g, 'function $1')
   processedCode = processedCode.replace(/export\s+default\s+const\s+(\w+)/g, 'const $1')
+  
+  // Handle export default with arrow functions more carefully
+  processedCode = processedCode.replace(/export\s+default\s+\(\)\s*=>/g, '() =>')
+  processedCode = processedCode.replace(/export\s+default\s+\([^)]*\)\s*=>/g, (match) => match.replace('export default ', ''))
+  
+  // Remove remaining export default statements
   processedCode = processedCode.replace(/export\s+default\s+/g, '')
   processedCode = processedCode.replace(/export\s*{\s*[^}]*\s*}/g, '')
   processedCode = processedCode.replace(/export\s+/g, '')
@@ -224,36 +230,67 @@ function buildSandboxHtml(code: string, iframeId: string): string {
   // Final cleanup - remove any remaining export keywords
   processedCode = processedCode.replace(/\bexport\b/g, '')
   
-  // Extract component name from the original code
-  let componentName = 'Component'
-  const functionMatch = processedCode.match(/function\s+(\w+)\s*\(/)
-  const constMatch = processedCode.match(/const\s+(\w+)\s*[:=]/)
+  // Clean up any orphaned return statements that might be outside functions
+  // This can happen if export default was removed incorrectly
+  // Only comment out return statements that are at the top level (not inside functions)
+  const lines = processedCode.split('\n');
+  let braceCount = 0;
+  let processedLines = [];
   
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmedLine = line.trim();
+    
+    // Count braces to track if we're inside a function
+    braceCount += (line.match(/{/g) || []).length;
+    braceCount -= (line.match(/}/g) || []).length;
+    
+    // If we're at the top level (braceCount === 0) and there's a return statement, comment it out
+    if (braceCount === 0 && trimmedLine.startsWith('return ')) {
+      processedLines.push(line.replace(/^(\s*)return\s+/, '$1// return '));
+    } else {
+      processedLines.push(line);
+    }
+  }
+  
+  processedCode = processedLines.join('\n');
+  
+  // Extract component name from the original code - look for actual component declarations
+  let componentName = 'Component'
+  
+  // Look for function components first
+  const functionMatch = processedCode.match(/function\s+(\w+)\s*\(/)
   if (functionMatch) {
     componentName = functionMatch[1]
-  } else if (constMatch) {
-    componentName = constMatch[1]
+  } else {
+    // Look for const components with React.FC or arrow functions
+    const constComponentMatch = processedCode.match(/const\s+(\w+)\s*:\s*React\.FC\s*=\s*\(/)
+    if (constComponentMatch) {
+      componentName = constComponentMatch[1]
+    } else {
+      // Look for const components with arrow functions (more specific pattern)
+      const arrowFunctionMatch = processedCode.match(/const\s+(\w+)\s*=\s*\(\)\s*=>\s*{/)
+      if (arrowFunctionMatch) {
+        componentName = arrowFunctionMatch[1]
+      } else {
+        // Fallback: look for any const that ends with a component-like pattern
+        const fallbackMatch = processedCode.match(/const\s+(\w+)\s*=\s*\(\)\s*=>/)
+        if (fallbackMatch) {
+          componentName = fallbackMatch[1]
+        }
+      }
+    }
   }
+  
+  console.log('Detected component name:', componentName);
+  console.log('Processed code preview:', processedCode.substring(0, 500));
   
   // Add assignment to global scope for const declarations
         if (processedCode.includes(`const ${componentName}`)) {
           processedCode += `\nwindow.${componentName} = ${componentName};`
         }
         
-        // Simple variable handling - just add common variables at the beginning
-        const commonVars = ['examples', 'questions', 'steps', 'data', 'items', 'options', 'answers', 'feedback', 'results', 'learningObjectives', 'styles'];
-        let variableAssignments = '';
-        
-        commonVars.forEach(varName => {
-          if (processedCode.includes(varName)) {
-            variableAssignments += `if (typeof ${varName} !== 'undefined') { window.${varName} = ${varName}; }\n`;
-          }
-        });
-        
-        if (variableAssignments) {
-          processedCode = variableAssignments + processedCode;
-          console.log('Added variable assignments at the beginning');
-        }
+        // Note: Variable assignments are handled by the global variable resolver after code execution
 
   // Escape the processed code for safe embedding
   const escapedCode = processedCode
@@ -309,13 +346,13 @@ function buildSandboxHtml(code: string, iframeId: string): string {
         // Processed code embedded safely
         const processedCode = \`${escapedCode}\`
         
-        // Simple variable resolver
+        // Simple and reliable variable resolver
         const globalVarResolver = \`
-          // Simple variable resolver
-          console.log('Starting simple variable resolution...');
+          // Simple variable resolver - runs after main code execution
+          console.log('Starting variable resolution...');
           
-          // Try to resolve common variables
           const commonVars = ['examples', 'questions', 'steps', 'data', 'items', 'options', 'answers', 'feedback', 'results', 'learningObjectives', 'styles'];
+          
           commonVars.forEach(varName => {
             try {
               if (typeof window[varName] === 'undefined') {
@@ -334,10 +371,10 @@ function buildSandboxHtml(code: string, iframeId: string): string {
         \`;
         
         // Transform the code with Babel
-        const transformed = Babel.transform(processedCode, {
-          presets: ['react'],
-          plugins: [['transform-typescript', { isTSX: true, allExtensions: true }]]
-        }).code
+          const transformed = Babel.transform(processedCode, {
+            presets: ['react'],
+            plugins: [['transform-typescript', { isTSX: true, allExtensions: true }]]
+          }).code
           
         console.log('Transformed code:', transformed)
         console.log('Processed code sample:', processedCode.substring(0, 1000))
@@ -366,16 +403,37 @@ function buildSandboxHtml(code: string, iframeId: string): string {
         const resolverFn = new Function(...Object.keys(safeGlobals), globalVarResolver)
         resolverFn(...Object.values(safeGlobals))
         
-        // Get the component from the global scope
+        // Get the component from the global scope with better debugging
+        console.log('Looking for component:', '${componentName}');
+        console.log('Available window properties:', Object.keys(window).filter(k => typeof window[k] === 'function'));
+        
+        let componentToRender = null;
         const Comp = window['${componentName}']
-        if (!Comp || typeof Comp !== 'function') {
-          throw new Error('Component not found or not a function: ${componentName}. Available globals: ' + Object.keys(window).filter(k => typeof window[k] === 'function').join(', '))
+        
+        if (Comp && typeof Comp === 'function') {
+          // Component found successfully
+          componentToRender = Comp;
+          console.log('Using detected component:', '${componentName}');
+        } else {
+          // Try to find any component-like function in the global scope
+          const possibleComponents = Object.keys(window).filter(k => {
+            const val = window[k];
+            return typeof val === 'function' && k.match(/^[A-Z]/); // Capitalized names are likely components
+          });
+          
+          console.log('Possible components found:', possibleComponents);
+          
+          if (possibleComponents.length > 0) {
+            componentToRender = window[possibleComponents[0]];
+            console.log('Using fallback component:', possibleComponents[0]);
+          } else {
+            throw new Error('Component not found or not a function: ${componentName}. Available globals: ' + Object.keys(window).filter(k => typeof window[k] === 'function').join(', '))
+          }
         }
           
           // Render the component
         const root = ReactDOM.createRoot(document.getElementById('root'))
-        root.render(React.createElement(Comp))
-        
+        root.render(React.createElement(componentToRender))
         console.log('Component rendered successfully')
         } catch (e) {
           console.error('Iframe render error:', e)

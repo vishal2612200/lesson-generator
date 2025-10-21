@@ -1,7 +1,7 @@
 # System Architecture
 
-**Last Updated**: 2025-10-20  
-**System Version**: 2.0 (Dual-Mode Generation)
+**Last Updated**: 2025-01-27  
+**System Version**: 2.1 (Enhanced React Component Generation)
 
 ## Overview
 
@@ -56,8 +56,8 @@ User Request → Queue → Worker → LLM → Validation → Storage → UI Rend
                    ↓
 ┌─────────────────────────────────────────────────┐
 │  UI Renderer (src/app/lessons/[id]/page.tsx)    │
-│  • Block-based → BlockRenderer                  │
-│  • Component → IframeTSXRenderer (Babel)        │
+│  • React Component → IframeTSXRenderer (Babel)  │
+│  • Block-based → ModernLessonRenderer           │
 │  • Real-time updates via polling                │
 └─────────────────────────────────────────────────┘
 ```
@@ -130,41 +130,41 @@ export default InteractiveLesson;
 
 **Pipeline Stages**:
 
-1. **Pedagogy Detection** (src/worker/cli.ts:69-86)
+1. **Pedagogy Detection**
    - Analyzes topic keywords
    - Sets grade level (3-5, 6-12, college/professional)
    - Determines cognitive load and reading level
 
-2. **Planner Agent** (src/worker/componentKit/agents.ts:9-63)
+2. **Planner Agent**
    - Intent detection (test vs explanation vs practice)
    - Component planning (1-3 components per lesson)
    - Learning objective definition
 
-3. **Author Agent** (src/worker/componentKit/agents.ts:69-156)
+3. **Author Agent**
    - Generates TSX code with React hooks
    - Follows content type guidance (quiz/explanation/practice)
    - Ensures visual elements + interactivity
    - **Quality Requirements**: Correctness, clarity, engagement
 
-4. **Safety Check** (src/worker/componentKit/safety.ts)
+4. **Safety Check**
    - Blocks: fetch, eval, document/window access, require, import
    - Validates: No external URLs, no DOM manipulation
 
-5. **TypeScript Compilation** (src/worker/componentKit/compiler.ts)
+5. **TypeScript Compilation**
    - Sandboxed compilation using typescript API
    - Captures semantic errors
    - Transpilation fallback if needed
 
-6. **Repair Loop** (src/worker/componentKit/repair.ts)
+6. **Repair Loop**
    - Max 2 repair attempts
    - Sends compilation errors back to LLM
    - Iterative fixes
 
-7. **Preview Generation** (src/worker/componentKit/preview.ts)
+7. **Preview Generation**
    - Server-side rendering (SSR) for validation
    - Ensures component can actually render
 
-8. **Quality Evaluation** (src/worker/componentKit/evaluator.ts)
+8. **Quality Evaluation**
    - Checks rendered HTML for content
    - Validates educational value
    - Pass/fail decision
@@ -208,7 +208,7 @@ const { data: claimed } = await supabase
 **Solution**: Explicit intent detection in planner agent
 
 ```typescript
-// src/worker/componentKit/agents.ts:16-29
+// Component generation agents
 IF topic contains: "test", "quiz", "assessment"
 → CREATE: Interactive quiz with questions, scoring, feedback
 
@@ -246,7 +246,85 @@ if (selectedValue === questions[qIndex].correctAnswer)
 5. Render returned component
 ```
 
-### 5. Tailwind CSS Safelist
+### 5. React Component Detection (v2.1)
+
+**Problem**: System was generating React components but falling back to JSON rendering  
+**Solution**: Enhanced detection logic for React component patterns
+
+```typescript
+// src/app/lessons/[id]/page.tsx
+const isComponentBased = content.typescript_source?.includes("'use client'") ||
+                       content.typescript_source?.includes('export default function') ||
+                       content.typescript_source?.includes('export default const') ||
+                       content.typescript_source?.includes('React.FC') ||
+                       content.typescript_source?.includes('useState') ||
+                       content.typescript_source?.includes('useEffect') ||
+                       content.compiled_js?.includes("'use client'")
+```
+
+**Detection Patterns**:
+- `'use client'` directive
+- `export default function` declarations
+- `export default const` declarations  
+- `React.FC` type annotations
+- `useState` hook usage
+- `useEffect` hook usage
+
+### 6. Variable Scope Management (v2.1)
+
+**Problem**: Generated components had undefined variables (styles, examples, etc.)  
+**Solution**: Comprehensive variable declaration handling in iframe
+
+```typescript
+// src/app/lessons/[id]/IframeTSXRenderer.tsx
+// Early variable assignment
+const commonVars = ['examples', 'questions', 'steps', 'data', 'items', 'options', 'answers', 'feedback', 'results', 'learningObjectives', 'styles'];
+commonVars.forEach(varName => {
+  if (processedCode.includes(varName)) {
+    variableAssignments += `if (typeof ${varName} !== 'undefined') { window.${varName} = ${varName}; }\n`;
+  }
+});
+
+// Global variable resolver
+const globalVarResolver = `
+  const commonVars = ['examples', 'questions', 'steps', 'data', 'items', 'options', 'answers', 'feedback', 'results', 'learningObjectives', 'styles'];
+  commonVars.forEach(varName => {
+    try {
+      if (typeof window[varName] === 'undefined') {
+        const value = eval(varName);
+        if (value !== undefined) {
+          window[varName] = value;
+        }
+      }
+    } catch (e) {
+      // Variable not found, continue
+    }
+  });
+`;
+```
+
+### 7. Storage Access in Data URLs (v2.1)
+
+**Problem**: `sessionStorage` and `localStorage` disabled in data URLs  
+**Solution**: Blob URLs + storage polyfills
+
+```typescript
+// Use blob URLs instead of data URLs
+const blob = new Blob([sandboxHtml], { type: 'text/html' });
+const iframeSrc = URL.createObjectURL(blob);
+
+// Storage polyfills for restricted environments
+if (!window.localStorage) {
+  window.localStorage = {
+    _data: {},
+    getItem: function(key) { return this._data[key] || null; },
+    setItem: function(key, value) { this._data[key] = value; },
+    // ... other methods
+  };
+}
+```
+
+### 8. Tailwind CSS Safelist
 
 **Problem**: Dynamically generated components use classes not found at build time  
 **Solution**: Safelist commonly used utilities
@@ -257,6 +335,40 @@ safelist: [
   'p-2', 'p-4', 'p-6', 'bg-blue-500', 'text-white', ...
 ]
 ```
+
+---
+
+## Recent Improvements (v2.1)
+
+### System Status
+- ✅ **React Component Generation**: Fully functional with multi-agent system
+- ✅ **Component Detection**: Enhanced logic properly identifies TSX components
+- ✅ **Variable Scope Management**: All common variables (styles, examples, etc.) now work
+- ✅ **Storage Access**: Blob URLs enable full localStorage/sessionStorage support
+- ✅ **Error Handling**: Comprehensive error recovery and fallback mechanisms
+- ✅ **Multi-Agent Traces**: Full traceability of generation process
+
+### Key Fixes Implemented
+
+1. **React Component Detection**: Fixed issue where system was generating React components but falling back to JSON rendering due to `compiled_js` being `null`
+
+2. **Variable Scope Issues**: Resolved "undefined variable" errors for common variables like `styles`, `examples`, `learningObjectives`, etc.
+
+3. **Storage Access**: Fixed `sessionStorage`/`localStorage` errors in iframe by switching from data URLs to blob URLs
+
+4. **White Screen Issues**: Simplified variable handling to prevent execution failures
+
+5. **Multi-Agent System**: Ensured proper routing between single-agent and multi-agent generation based on complexity
+
+### Current Generation Flow
+
+```
+User Input → Queue → Worker → Multi-Agent System → React Component → Iframe Renderer
+```
+
+**Primary Path**: Multi-agent system generates interactive React components
+**Fallback Path**: Single-agent system for simpler content
+**Rendering**: All React components use sandboxed iframe with Babel transformation
 
 ---
 
@@ -277,9 +389,9 @@ CREATE TABLE lessons (
 CREATE TABLE lesson_contents (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   lesson_id UUID REFERENCES lessons(id) ON DELETE CASCADE,
-  typescript_source TEXT,      -- TSX source code
-  compiled_js TEXT,             -- Compiled JavaScript
-  blocks JSONB,                 -- Block-based content
+  typescript_source TEXT,      -- TSX source code (React components)
+  compiled_js TEXT,             -- Compiled JavaScript (often null, compiled in browser)
+  blocks JSONB,                 -- Block-based content (legacy)
   version INTEGER DEFAULT 1,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -346,6 +458,50 @@ LOG_LEVEL=info              # debug|info|warn|error
 - Sequential processing: ~1 lesson per minute
 - Poll interval: 5 seconds
 - Auto-retry: 3 attempts with exponential backoff
+
+---
+
+## Rendering System
+
+### Component Detection Logic
+
+The system automatically determines whether to render content as a React component or block-based content:
+
+```typescript
+// src/app/lessons/[id]/page.tsx
+const isComponentBased = content.typescript_source?.includes("'use client'") ||
+                       content.typescript_source?.includes('export default function') ||
+                       content.typescript_source?.includes('export default const') ||
+                       content.typescript_source?.includes('React.FC') ||
+                       content.typescript_source?.includes('useState') ||
+                       content.typescript_source?.includes('useEffect') ||
+                       content.compiled_js?.includes("'use client'")
+
+if (isComponentBased) {
+  // Render as React component in sandboxed iframe
+  return <IframeTSXRenderer code={tsxSource} title={lesson.title} />
+} else {
+  // Render as block-based content
+  return <ModernLessonRenderer lesson={lessonForRenderer} />
+}
+```
+
+### IframeTSXRenderer Process
+
+1. **Code Processing**: Strips `'use client'` and imports
+2. **Variable Assignment**: Adds global assignments for common variables
+3. **Blob URL Creation**: Creates blob URL instead of data URL for storage access
+4. **Babel Transformation**: Transforms TSX to JavaScript
+5. **Safe Execution**: Executes in sandboxed iframe with React globals
+6. **Variable Resolution**: Resolves any undefined variables
+7. **Component Rendering**: Renders the React component
+
+### Storage Strategy
+
+- **`typescript_source`**: Contains the full TSX React component code
+- **`compiled_js`**: Often `null` - compilation happens in browser with Babel
+- **Browser Compilation**: Uses `@babel/standalone` for real-time TSX transformation
+- **Blob URLs**: Enable full storage access (localStorage/sessionStorage)
 
 ---
 
@@ -474,6 +630,6 @@ Terminal 2: npm run worker   # Worker process
 
 ## References
 
-- [src/worker/componentKit/](./src/worker/componentKit/) - Component generation pipeline
-- [src/app/lessons/[id]/](./src/app/lessons/[id]/) - Rendering system
+- Component generation pipeline - Multi-agent system for creating interactive React components
+- Rendering system - IframeTSXRenderer and component detection logic
 
