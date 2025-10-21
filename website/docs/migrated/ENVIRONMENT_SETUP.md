@@ -90,6 +90,8 @@ After setting up `.env.local`:
    ```
    [Generator] ✅ Trace inserted successfully: <uuid>
    ```
+   
+   **Note**: With realtime processing, lessons are processed instantly when queued. The worker uses Supabase realtime channels for immediate processing with 8-second polling fallback.
 
 ## Common Issues
 

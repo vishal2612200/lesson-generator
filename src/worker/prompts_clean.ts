@@ -90,3 +90,4 @@ export const FIX_LOOP_PROMPT = `You are a TypeScript expert. The following code 
 - Ensure proper React patterns
 
 Fix the code and output the corrected version:`;
+

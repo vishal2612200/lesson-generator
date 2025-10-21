@@ -43,9 +43,12 @@ User Request → Queue → Worker → LLM → Validation → Storage → UI Rend
 │  • lesson_components (archive)                  │
 │  • traces (debugging, telemetry)                │
 └──────────────────┬──────────────────────────────┘
-                   ↓ (poll every 5s)
+                   ↓ (realtime + 8s polling fallback)
 ┌─────────────────────────────────────────────────┐
 │  Worker Process (src/worker/cli.ts)             │
+│  • Realtime: Supabase channels for instant     │
+│    processing on INSERT/UPDATE to 'queued'     │
+│  • Fallback: 8s polling for missed events       │
 │  1. Claim queued lesson (atomic update)         │
 │  2. Route to generation pipeline                │
 │  3. Call LLM with structured prompts            │
@@ -186,7 +189,40 @@ export default InteractiveLesson;
 
 ## Key Design Decisions
 
-### 1. Atomic Job Claiming
+### 1. Realtime-First Processing Architecture
+
+**Problem**: Polling-based systems have latency and miss events  
+**Solution**: Supabase realtime channels with polling fallback
+
+```typescript
+// src/worker/cli.ts:240-283
+// Realtime: push-based processing on INSERT or status transition to queued
+const channel = supabaseAdmin
+  .channel('lessons-realtime')
+  .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'lessons' }, 
+    (payload: any) => {
+      if (payload?.new?.status === 'queued') {
+        void triggerProcess()  // Instant processing
+      }
+    })
+  .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'lessons' },
+    (payload: any) => {
+      if (payload?.new?.status === 'queued' && payload?.old?.status !== 'queued') {
+        void triggerProcess()  // Instant processing
+      }
+    })
+
+// Polling fallback: 8s interval for missed events
+const INTER_JOB_DELAY_MS = 8000
+```
+
+**Benefits**:
+- **Instant processing**: No waiting for next poll cycle
+- **Reliability**: Polling fallback catches missed events
+- **Efficiency**: Reduced unnecessary polling when no work exists
+- **Scalability**: Multiple workers can process simultaneously
+
+### 2. Atomic Job Claiming
 
 **Problem**: Multiple workers could claim the same job  
 **Solution**: Atomic CAS (Compare-And-Set) update
@@ -456,7 +492,8 @@ LOG_LEVEL=info              # debug|info|warn|error
 
 ### Worker Throughput
 - Sequential processing: ~1 lesson per minute
-- Poll interval: 5 seconds
+- Realtime processing: Instant on INSERT/UPDATE to 'queued'
+- Polling fallback: 8 seconds (for missed realtime events)
 - Auto-retry: 3 attempts with exponential backoff
 
 ---

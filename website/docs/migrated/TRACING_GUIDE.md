@@ -339,9 +339,10 @@ POST /api/webhooks/traces
 ## Troubleshooting
 
 ### Traces Not Appearing
-- Wait 5-10 seconds after generation
-- Refresh the page
+- Traces appear instantly with realtime processing
+- If traces don't appear immediately, refresh the page
 - Check lesson status (must be "generating" or "generated/failed")
+- Worker processes lessons instantly via Supabase realtime channels
 
 ### Missing Information
 - Some fields optional (validation metrics, etc.)

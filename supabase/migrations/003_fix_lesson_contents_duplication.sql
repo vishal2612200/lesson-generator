@@ -17,3 +17,4 @@ ADD CONSTRAINT unique_lesson_content UNIQUE (lesson_id);
 
 -- Add comment for documentation
 COMMENT ON CONSTRAINT unique_lesson_content ON lesson_contents IS 'Ensures only one content entry per lesson';
+
