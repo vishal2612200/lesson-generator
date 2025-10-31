@@ -21,6 +21,9 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "@domains/*": [
+        "./src/domains/*"
       ]
     },
     "plugins": [

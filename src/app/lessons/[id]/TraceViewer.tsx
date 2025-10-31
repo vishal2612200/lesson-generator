@@ -261,7 +261,7 @@ export default function TraceViewer({ traces, lessonTitle }: TraceViewerProps) {
                         {!trace.validation.passed && (
                           <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg">
                             <div className="flex items-start gap-3">
-                              <div className="text-2xl">⚠️</div>
+                              <div className="text-2xl"></div>
                               <div className="flex-1">
                                 <h5 className="font-semibold text-red-900 mb-2">Validation Issues</h5>
                                 {trace.validation.issues && trace.validation.issues.length > 0 && (
@@ -323,7 +323,7 @@ export default function TraceViewer({ traces, lessonTitle }: TraceViewerProps) {
                         {trace.error && (
                           <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg">
                             <div className="flex items-start gap-3">
-                              <div className="text-2xl">❌</div>
+                              <div className="text-2xl"></div>
                               <div className="flex-1">
                                 <h5 className="font-semibold text-red-900 mb-2">Error</h5>
                                 <p className="text-sm text-red-800">{trace.error}</p>
@@ -336,7 +336,7 @@ export default function TraceViewer({ traces, lessonTitle }: TraceViewerProps) {
                         {trace.validation.passed && trace.compilation.success && (
                           <div className="bg-green-50 border-l-4 border-green-500 p-4 rounded-r-lg">
                             <div className="flex items-center gap-3">
-                              <div className="text-2xl">✅</div>
+                              <div className="text-2xl"></div>
                               <div className="flex-1">
                                 <h5 className="font-semibold text-green-900">Generation Successful</h5>
                                 <p className="text-sm text-green-800">

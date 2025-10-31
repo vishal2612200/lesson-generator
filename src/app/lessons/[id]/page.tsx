@@ -1,13 +1,12 @@
 'use client'
 
 import React from 'react'
+import dynamic from 'next/dynamic'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 import Link from 'next/link'
-import ModernLessonRenderer from './ModernLessonRenderer'
-import ComponentRenderer from './ComponentRenderer'
-import IframeTSXRenderer from './IframeTSXRenderer'
-import TraceViewer from './TraceViewer'
+const ShadowRenderer = dynamic(() => import('../renderer/ShadowRenderer'), { ssr: false })
+const TraceViewer = dynamic(() => import('@domains/lesson/ui/TraceViewer'), { ssr: false })
 
 interface Lesson {
   id: string
@@ -27,7 +26,7 @@ interface LessonContent {
   created_at: string
 }
 
-interface Trace {
+interface LessonTrace {
   id: string
   lesson_id: string
   attempt_number: number
@@ -35,9 +34,20 @@ interface Trace {
   prompt: string
   model: string
   response: string
-  tokens: any
-  validation: any
-  compilation: any
+  tokens?: {
+    prompt_tokens?: number
+    completion_tokens?: number
+    total_tokens?: number
+  }
+  validation?: {
+    success?: boolean
+    errors?: string[]
+    warnings?: string[]
+  }
+  compilation: {
+    success: boolean
+    errors?: string[]
+  }
   created_at: string
 }
 
@@ -47,7 +57,7 @@ export default function LessonPage() {
 
   const [lesson, setLesson] = React.useState(null as Lesson | null)
   const [content, setContent] = React.useState(null as LessonContent | null)
-  const [traces, setTraces] = React.useState([] as Trace[])
+  const [traces, setTraces] = React.useState([] as LessonTrace[])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState('')
   const [showTraces, setShowTraces] = React.useState(false)
@@ -113,6 +123,22 @@ export default function LessonPage() {
       supabase.removeChannel(channel)
     }
   }, [id])
+  
+  // Fallback polling in case realtime updates are unavailable (local dev or Realtime disabled)
+  React.useEffect(() => {
+    if (!id) return
+    // Only poll while lesson is in a non-terminal state or content hasn't arrived
+    const shouldPoll = lesson == null || lesson.status === 'queued' || lesson.status === 'generating' || (lesson.status === 'generated' && !content)
+    if (!shouldPoll) return
+
+    const intervalId = setInterval(() => {
+      fetchLesson()
+    }, 2500)
+
+    return () => {
+      clearInterval(intervalId)
+    }
+  }, [id, lesson?.status, content])
   
   if (loading) {
     return (
@@ -268,31 +294,24 @@ export default function LessonPage() {
                                        content.compiled_js?.includes('"use client"')
                 
                 if (isComponentBased) {
-                  // Prefer sandboxed iframe TSX rendering for safety
-                  const tsxSource = content.typescript_source || content.compiled_js || ''
                   return (
-                    <IframeTSXRenderer
-                      code={tsxSource}
-                      title={lesson.title}
-                    />
+                    <ShadowRenderer lessonId={lesson.id} title={lesson.title} />
                   )
                 } else {
-                  // Render as block-based lesson (legacy)
-                  const parsedContent = parseLessonContent(content.compiled_js || '')
-                  const parsedType = parseLessonType(content.compiled_js || '')
-                  
-                  const lessonForRenderer = {
-                    id: lesson.id,
-                    title: lesson.title,
-                    description: lesson.outline,
-                    type: parsedType,
-                    content: parsedContent
-                  }
-                  
+                  // Legacy format not supported - component-based lessons only
                   return (
-                    <ModernLessonRenderer
-                      lesson={lessonForRenderer}
-                    />
+                    <div className="card p-8 text-center">
+                      <div className="w-20 h-20 bg-gradient-to-br from-yellow-100 to-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <svg className="w-10 h-10 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                      </div>
+                      <h3 className="text-xl font-bold text-gray-900 mb-2">Legacy Format Not Supported</h3>
+                      <p className="text-gray-600 mb-4">
+                        This lesson was generated using a legacy format that is no longer supported.
+                        Please regenerate the lesson to use the modern component-based format.
+                      </p>
+                    </div>
                   )
                 }
               })()}
@@ -302,7 +321,7 @@ export default function LessonPage() {
           {/* AI Traces Section - Always show */}
           <div className="mb-8">
             <button
-              onClick={() => setShowTraces(!showTraces)}
+              onClick={() => setShowTraces((s) => !s)}
               className="card p-6 w-full flex items-center justify-between text-left group hover:shadow-lg transition-shadow mb-4"
             >
               <div className="flex items-center gap-3">
@@ -332,7 +351,7 @@ export default function LessonPage() {
               <div className="flex items-center gap-3">
                 {traces.length > 0 ? (
                   <span className="badge bg-blue-100 text-blue-700">
-                    {traces.filter((t: Trace) => t.compilation.success).length} successful
+                    {traces.filter((t: LessonTrace) => t.compilation.success).length} successful
                   </span>
                 ) : (
                   <span className="badge bg-gray-100 text-gray-600">
@@ -348,7 +367,16 @@ export default function LessonPage() {
             {showTraces && (
               <div className="animate-fadeIn">
                 {traces.length > 0 ? (
-                  <TraceViewer traces={traces} lessonTitle={lesson.title} />
+                  <TraceViewer
+                    traces={
+                      traces.map(t => ({
+                        ...t,
+                        tokens: t.tokens || { total_tokens: 0, prompt_tokens: 0, completion_tokens: 0 },
+                        validation: t.validation || { passed: false },
+                      })) as any
+                    }
+                    lessonTitle={lesson.title}
+                  />
                 ) : (
                   <div className="card p-8 text-center">
                     <div className="w-20 h-20 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -462,71 +490,4 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-function parseLessonContent(compiledJs: string): any {
-  try {
-    // Try multiple patterns to extract the lesson object
-    let lessonMatch = compiledJs.match(/const lesson\s*:\s*Lesson\s*=\s*({[\s\S]*?});/);
-    if (!lessonMatch) {
-      lessonMatch = compiledJs.match(/const lesson\s*=\s*({[\s\S]*?});/);
-    }
-    if (!lessonMatch) {
-      lessonMatch = compiledJs.match(/lesson\s*:\s*Lesson\s*=\s*({[\s\S]*?});/);
-    }
-    if (!lessonMatch) {
-      lessonMatch = compiledJs.match(/lesson\s*=\s*({[\s\S]*?});/);
-    }
-    
-    if (lessonMatch) {
-      // Use Function constructor instead of eval for safety
-      const lessonStr = lessonMatch[1];
-      const lessonObj = new Function('return ' + lessonStr)();
-      return lessonObj.content || { blocks: [] };
-    } else {
-      // Try to find any object that looks like a lesson
-      const objectMatch = compiledJs.match(/{[\s\S]*?title[\s\S]*?}/);
-      if (objectMatch) {
-        try {
-          const lessonObj = new Function('return ' + objectMatch[0])();
-          return lessonObj.content || { blocks: [] };
-        } catch (e) {
-          console.error('Error parsing lesson-like object:', e);
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Error parsing lesson content:', error);
-  }
-  return { blocks: [] };
-}
-
-function parseLessonType(compiledJs: string): 'quiz' | 'one-pager' | 'explanation' | 'rich-content' {
-  try {
-    // Try multiple patterns to extract the lesson object
-    let lessonMatch = compiledJs.match(/const lesson\s*:\s*Lesson\s*=\s*({[\s\S]*?});/);
-    if (!lessonMatch) {
-      lessonMatch = compiledJs.match(/const lesson\s*=\s*({[\s\S]*?});/);
-    }
-    if (!lessonMatch) {
-      lessonMatch = compiledJs.match(/lesson\s*:\s*Lesson\s*=\s*({[\s\S]*?});/);
-    }
-    if (!lessonMatch) {
-      lessonMatch = compiledJs.match(/lesson\s*=\s*({[\s\S]*?});/);
-    }
-    
-    if (lessonMatch) {
-      const lessonStr = lessonMatch[1];
-      const lessonObj = new Function('return ' + lessonStr)();
-      return lessonObj.type || 'quiz';
-    } else {
-      // Fallback to regex search
-      const typeMatch = compiledJs.match(/type:\s*['"]([^'"]+)['"]/);
-      if (typeMatch) {
-        return typeMatch[1] as 'quiz' | 'one-pager' | 'explanation' | 'rich-content';
-      }
-    }
-  } catch (error) {
-    console.error('Error parsing lesson type:', error);
-  }
-  return 'quiz';
-}
 

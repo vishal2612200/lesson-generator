@@ -12,12 +12,12 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
 if (!supabaseUrl) {
-  console.error('❌ SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL is required')
+  console.error(' SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL is required')
   process.exit(1)
 }
 
 if (!supabaseServiceRoleKey) {
-  console.error('❌ SUPABASE_SERVICE_ROLE_KEY is required')
+  console.error(' SUPABASE_SERVICE_ROLE_KEY is required')
   process.exit(1)
 }
 
@@ -40,7 +40,7 @@ async function testTraceInsert() {
 
     if (existingLessons && existingLessons.length > 0) {
       testLesson = existingLessons[0]
-      console.log(`   ✅ Using existing test lesson: ${testLesson.id}`)
+      console.log(`    Using existing test lesson: ${testLesson.id}`)
     } else {
       const { data: newLesson, error: createError } = await (supabaseAdmin
         .from('lessons') as any)
@@ -53,12 +53,12 @@ async function testTraceInsert() {
         .single()
 
       if (createError) {
-        console.error('   ❌ Failed to create test lesson:', createError)
+        console.error('    Failed to create test lesson:', createError)
         return
       }
 
       testLesson = newLesson
-      console.log(`   ✅ Created test lesson: ${testLesson.id}`)
+      console.log(`    Created test lesson: ${testLesson.id}`)
     }
 
     console.log()
@@ -98,7 +98,7 @@ async function testTraceInsert() {
       .single()
 
     if (insertError) {
-      console.error('   ❌ Failed to insert trace:', insertError)
+      console.error('    Failed to insert trace:', insertError)
       console.log('\n💡 Common causes:')
       console.log('   1. Database permissions issue')
       console.log('   2. Missing required fields')
@@ -107,7 +107,7 @@ async function testTraceInsert() {
       return
     }
 
-    console.log('   ✅ Successfully inserted trace!')
+    console.log('    Successfully inserted trace!')
     console.log('   Trace ID:', insertedTrace.id)
     console.log()
 
@@ -121,11 +121,11 @@ async function testTraceInsert() {
       .single()
 
     if (readError) {
-      console.error('   ❌ Failed to read trace:', readError)
+      console.error('    Failed to read trace:', readError)
       return
     }
 
-    console.log('   ✅ Successfully read trace back!')
+    console.log('    Successfully read trace back!')
     console.log()
 
     // Check all traces for this lesson
@@ -138,11 +138,11 @@ async function testTraceInsert() {
       .order('attempt_number', { ascending: true })
 
     if (allTracesError) {
-      console.error('   ❌ Failed to fetch traces:', allTracesError)
+      console.error('    Failed to fetch traces:', allTracesError)
       return
     }
 
-    console.log(`   ✅ Found ${allTraces?.length || 0} trace(s) for this lesson`)
+    console.log(`    Found ${allTraces?.length || 0} trace(s) for this lesson`)
 
     if (allTraces && allTraces.length > 0) {
       allTraces.forEach((trace: any) => {
@@ -161,15 +161,15 @@ async function testTraceInsert() {
       .eq('id', insertedTrace.id)
 
     if (deleteError) {
-      console.error('   ⚠️  Failed to delete test trace:', deleteError)
+      console.error('     Failed to delete test trace:', deleteError)
       console.log('   You may need to manually delete it.')
     } else {
-      console.log('   ✅ Test trace cleaned up')
+      console.log('    Test trace cleaned up')
     }
 
     console.log()
     console.log('═══════════════════════════════════════')
-    console.log('✅ ALL TESTS PASSED!')
+    console.log(' ALL TESTS PASSED!')
     console.log('═══════════════════════════════════════')
     console.log()
     console.log('The database is configured correctly for traces.')
@@ -179,7 +179,7 @@ async function testTraceInsert() {
     console.log('  3. Environment variables are set correctly')
     console.log()
   } catch (error) {
-    console.error('❌ Unexpected error:', error)
+    console.error(' Unexpected error:', error)
     console.log('\n💡 This might indicate a configuration issue.')
     console.log('Check your DATABASE_URL and SUPABASE_SERVICE_ROLE_KEY')
   }

@@ -2,7 +2,7 @@ import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import ts from "typescript";
-import { logger } from "../logger";
+import { logger } from "../common/logger";
 
 export type CompileResult = {
   success: boolean;
@@ -156,6 +156,18 @@ export function compileComponentTsx(options: CompileOptions): CompileResult {
     const diagnostics = ts.getPreEmitDiagnostics(program);
     const errors = diagnostics.map(d => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
 
+    // Check for semantic errors using diagnostic codes
+    const semanticErrorCodes = [
+      2304, // Cannot find name
+      2307, // Cannot find module
+      2322, // Type is not assignable
+      2551, // Property does not exist
+    ];
+    const hasSemantic = diagnostics.some(d => semanticErrorCodes.includes(d.code));
+    const semanticErrors = diagnostics
+      .filter(d => semanticErrorCodes.includes(d.code))
+      .map(d => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
+
     logger.debug('TypeScript diagnostics collected', {
       operation: 'diagnostics_collection',
       stage: 'compilation',
@@ -166,15 +178,13 @@ export function compileComponentTsx(options: CompileOptions): CompileResult {
     });
 
     if (errors.length > 0) {
-      const hasSemantic = errors.some(e => /Cannot find name|Type '(.*)' is not assignable|Property '(.*)' does not exist|Cannot find module/i.test(e));
-      
       logger.info('TypeScript errors detected, attempting emit', {
         operation: 'emit_with_errors',
         stage: 'compilation',
         metadata: {
           errorCount: errors.length,
           hasSemantic,
-          semanticErrors: errors.filter(e => /Cannot find name|Type '(.*)' is not assignable|Property '(.*)' does not exist|Cannot find module/i.test(e)),
+          semanticErrors,
         },
       });
 
@@ -193,6 +203,25 @@ export function compileComponentTsx(options: CompileOptions): CompileResult {
           }
         };
         walk(outDir);
+        // If no files were emitted due to config warnings, produce a transpiled output as a fallback artifact
+        if (emittedFiles.length === 0) {
+          try {
+            const transpiled = ts.transpileModule(options.tsxSource, {
+              compilerOptions: {
+                jsx: ts.JsxEmit.ReactJSX,
+                target: ts.ScriptTarget.ES2022,
+                module: ts.ModuleKind.CommonJS,
+              }
+            });
+            if (transpiled.outputText && transpiled.outputText.length > 0) {
+              const baseName = options.entryFileName ?? "Component.tsx";
+              const parsedPath = path.parse(baseName);
+              const outFile = path.join(outDir, path.format({ ...parsedPath, base: undefined, ext: ".js" }));
+              fs.writeFileSync(outFile, transpiled.outputText, "utf8");
+              emittedFiles.push(outFile);
+            }
+          } catch {}
+        }
         
         logger.info('Compilation successful despite non-semantic errors', {
           operation: 'compilation_success_with_warnings',
@@ -213,14 +242,37 @@ export function compileComponentTsx(options: CompileOptions): CompileResult {
       }
       
       // Allow transpile fallback only for JSX/runtime typing issues, not for semantic errors
-      const allowFallback = errors.every(e => (
-        /Cannot find module 'react'/.test(e) ||
-        /Cannot find module 'react\/jsx-runtime'/.test(e) ||
-        /Cannot find namespace 'JSX'/.test(e) ||
-        /Cannot find name 'JSX'/.test(e) ||
-        /JSX/.test(e) ||
-        /Cannot find name '(div|span|p|h1|h2|h3|button)'/i.test(e)
-      ));
+      // Check diagnostic codes for JSX/runtime related errors
+      const jsxRuntimeErrorCodes = [
+        2307, // Cannot find module (react, react/jsx-runtime)
+        2503, // Cannot find namespace
+      ];
+      const jsxElementNames = new Set(['div', 'span', 'p', 'h1', 'h2', 'h3', 'button']);
+      
+      const allowFallback = diagnostics.every(d => {
+        // Check for module errors (react, react/jsx-runtime)
+        if (d.code === 2307) {
+          const msg = ts.flattenDiagnosticMessageText(d.messageText, "\n").toLowerCase();
+          return msg.includes("react");
+        }
+        // Check for JSX namespace errors
+        if (d.code === 2503) {
+          const msg = ts.flattenDiagnosticMessageText(d.messageText, "\n").toLowerCase();
+          return msg.includes("jsx");
+        }
+        // Check for JSX element name errors (div, span, etc.)
+        if (d.code === 2304) {
+          const msg = ts.flattenDiagnosticMessageText(d.messageText, "\n").toLowerCase();
+          const elementMatch = msg.match(/cannot find name ['"]([a-z0-9]+)['"]/);
+          if (elementMatch && jsxElementNames.has(elementMatch[1])) {
+            return true;
+          }
+          // Also check for "JSX" in the message
+          return msg.includes("jsx");
+        }
+        // All other errors should not allow fallback
+        return false;
+      });
       
       if (allowFallback) {
         logger.info('Attempting transpile fallback for JSX/runtime issues', {
@@ -242,7 +294,9 @@ export function compileComponentTsx(options: CompileOptions): CompileResult {
           });
           
           if (transpiled.outputText && transpiled.outputText.length > 0) {
-            const outFile = path.join(outDir, (options.entryFileName ?? "Component.tsx").replace(/\.tsx?$/, ".js"));
+            const baseName = options.entryFileName ?? "Component.tsx";
+            const parsedPath = path.parse(baseName);
+            const outFile = path.join(outDir, path.format({ ...parsedPath, base: undefined, ext: ".js" }));
             fs.writeFileSync(outFile, transpiled.outputText, "utf8");
             
             logger.info('Transpile fallback successful', {

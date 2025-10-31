@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { generateLessonHybrid } from '@/worker/hybridGenerator'
-import { orchestrateComponentGeneration } from '@/worker/componentKit/orchestrator'
+import { generateLessonHybrid } from '@/worker/generation'
+import { orchestrateComponentGeneration } from '@/worker/componentKit'
 import { supabaseAdmin } from '@/lib/supabase/server'
 
 export const maxDuration = 60

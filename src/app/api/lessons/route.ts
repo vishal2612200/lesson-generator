@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase/server'
-import { generateLessonHybrid } from '@/worker/hybridGenerator'
-import { orchestrateComponentGeneration } from '@/worker/componentKit/orchestrator'
+import { nowMs } from '@/worker/common/perf'
+import { LessonRepositorySupabase } from '@domains/lesson/infrastructure/supabase/LessonRepositorySupabase'
+import { CreateLessonAndGenerate, ListLessons } from '@domains/lesson/application'
 
 export const maxDuration = 300 // 5 minutes for lesson generation
 export const dynamic = 'force-dynamic'
@@ -13,7 +13,7 @@ const ipHits = new Map<string, { count: number; windowStart: number }>()
 
 function allowRequest(ip: string | null): boolean {
   if (!ip) return true
-  const now = Date.now()
+  const now = nowMs()
   const rec = ipHits.get(ip)
   if (!rec || now - rec.windowStart > WINDOW_MS) {
     ipHits.set(ip, { count: 1, windowStart: now })
@@ -47,99 +47,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Auto-generate title from first line of outline or use default
-    const firstLine = outline.split('\n')[0].trim()
-    const title = firstLine.length > 0 && firstLine.length <= 100 
-      ? firstLine 
-      : 'Untitled Lesson'
+    const repo = new LessonRepositorySupabase()
+    const useCase = new CreateLessonAndGenerate(repo)
+    const lesson = await useCase.execute(outline)
 
-    const { data: lesson, error } = await (supabaseAdmin
-      .from('lessons') as any)
-      .insert({
-        title,
-        outline,
-        status: 'generating' as const,
-      })
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Error creating lesson:', error)
-      return NextResponse.json(
-        { error: 'Failed to create lesson' },
-        { status: 500 }
-      )
-    }
-
-    try {
-      // Process the lesson immediately
-      console.log(`Starting lesson generation for lesson ${lesson.id}`)
-      
-      // Generate the lesson content
-      await generateLessonHybrid(lesson.id)
-      
-      // Get the updated lesson with generated content
-      const { data: updatedLesson, error: fetchError } = await (supabaseAdmin
-        .from('lessons') as any)
-        .select('*')
-        .eq('id', lesson.id)
-        .single()
-
-      if (fetchError) {
-        console.error('Error fetching updated lesson:', fetchError)
-        await (supabaseAdmin.from('lessons') as any)
-          .update({ status: 'failed' })
-          .eq('id', lesson.id)
-        
-        return NextResponse.json(
-          { error: 'Failed to fetch generated lesson' },
-          { status: 500 }
-        )
-      }
-
-      console.log(`Successfully generated lesson ${lesson.id}`)
-      return NextResponse.json({ data: updatedLesson }, { status: 201 })
-      
-    } catch (error) {
-      console.error('Error generating lesson:', error)
-      
-      // Mark lesson as failed
-      await (supabaseAdmin.from('lessons') as any)
-        .update({ status: 'failed' })
-        .eq('id', lesson.id)
-      
-      // Save a failure trace for debugging
-      try {
-        await (supabaseAdmin.from('traces') as any).insert({
-          lesson_id: lesson.id,
-          attempt_number: 1,
-          prompt: 'API-level generation failure',
-          model: 'api-error',
-          response: '',
-          tokens: null,
-          validation: { 
-            passed: false, 
-            errors: [error instanceof Error ? error.message : 'Unknown error']
-          },
-          compilation: { 
-            success: false, 
-            error: error instanceof Error ? error.message : 'Unknown error'
-          },
-          error: error instanceof Error ? error.message : 'Unknown error'
-        })
-      } catch (traceError) {
-        console.error('Failed to save failure trace:', traceError)
-      }
-      
-      return NextResponse.json(
-        { error: 'Failed to generate lesson content' },
-        { status: 500 }
-      )
-    }
+    return NextResponse.json({ data: lesson }, { status: 201 })
   } catch (error) {
     console.error('Error in POST /api/lessons:', error)
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: error instanceof Error ? error.message : 'Internal server error' },
       { status: 500 }
     )
   }
@@ -147,19 +63,9 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   try {
-    const { data: lessons, error } = await (supabaseAdmin
-      .from('lessons') as any)
-      .select('*')
-      .order('created_at', { ascending: false })
-
-    if (error) {
-      console.error('Error fetching lessons:', error)
-      return NextResponse.json(
-        { error: 'Failed to fetch lessons' },
-        { status: 500 }
-      )
-    }
-
+    const repo = new LessonRepositorySupabase()
+    const useCase = new ListLessons(repo)
+    const lessons = await useCase.execute()
     return NextResponse.json({ data: lessons })
   } catch (error) {
     console.error('Error in GET /api/lessons:', error)

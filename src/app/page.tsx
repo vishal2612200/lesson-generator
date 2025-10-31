@@ -3,6 +3,35 @@
 import React from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
+function getStatusIcon(status: string) {
+  switch (status) {
+    case 'generated':
+      return (
+        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+        </svg>
+      )
+    case 'generating':
+      return (
+        <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+      )
+    case 'failed':
+      return (
+        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+        </svg>
+      )
+    default:
+      return (
+        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+        </svg>
+      )
+  }
+}
 
 interface Lesson {
   id: string
@@ -10,6 +39,44 @@ interface Lesson {
   status: 'queued' | 'generating' | 'generated' | 'failed'
   created_at: string
 }
+
+function LessonCard({ lesson, index, onClick }: { lesson: Lesson; index: number; onClick: () => void }) {
+  return (
+    <div
+      onClick={onClick}
+      className="card-hover p-6 cursor-pointer group border-2 border-gray-100 hover:border-blue-200"
+      style={{ animation: `fadeIn 0.4s ease-out ${index * 0.1}s both` }}
+    >
+      <div className="flex items-start justify-between mb-3">
+        <h3 className="text-lg font-semibold text-gray-900 group-hover:text-blue-600 transition-colors line-clamp-2 flex-1">
+          {lesson.title}
+        </h3>
+        <svg className="w-5 h-5 text-gray-400 group-hover:text-blue-600 transition-colors flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className={`badge flex items-center gap-1.5 ${
+          lesson.status === 'generated' 
+            ? 'bg-green-100 text-green-700'
+            : lesson.status === 'generating'
+            ? 'bg-yellow-100 text-yellow-700'
+            : lesson.status === 'failed'
+            ? 'bg-red-100 text-red-700'
+            : 'bg-gray-100 text-gray-700'
+        }`}>
+          {getStatusIcon(lesson.status)}
+          <span className="capitalize">{lesson.status}</span>
+        </span>
+        <span className="text-xs text-gray-400">
+          {new Date(lesson.created_at).toLocaleDateString()}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+const MemoLessonCard = React.memo(LessonCard)
 
 export default function Home() {
   const router = useRouter()
@@ -103,35 +170,7 @@ export default function Home() {
     }
   }
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'generated':
-        return (
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-          </svg>
-        )
-      case 'generating':
-        return (
-          <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-        )
-      case 'failed':
-        return (
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-          </svg>
-        )
-      default:
-        return (
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-          </svg>
-        )
-    }
-  }
+  const handleNavigate = React.useCallback((id: string) => () => router.push(`/lessons/${id}`), [router])
 
   return (
     <div className="min-h-screen">
@@ -347,39 +386,7 @@ export default function Home() {
               ) : (
                 <div className="grid md:grid-cols-2 gap-4">
                   {lessons.map((lesson: Lesson, index: number) => (
-                    <div
-                      key={lesson.id}
-                      onClick={() => router.push(`/lessons/${lesson.id}`)}
-                      className="card-hover p-6 cursor-pointer group border-2 border-gray-100 hover:border-blue-200"
-                      style={{ animation: `fadeIn 0.4s ease-out ${index * 0.1}s both` }}
-                    >
-                      <div className="flex items-start justify-between mb-3">
-                        <h3 className="text-lg font-semibold text-gray-900 group-hover:text-blue-600 transition-colors line-clamp-2 flex-1">
-                          {lesson.title}
-                        </h3>
-                        <svg className="w-5 h-5 text-gray-400 group-hover:text-blue-600 transition-colors flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </div>
-                      
-                      <div className="flex items-center gap-2">
-                        <span className={`badge flex items-center gap-1.5 ${
-                          lesson.status === 'generated' 
-                            ? 'bg-green-100 text-green-700'
-                            : lesson.status === 'generating'
-                            ? 'bg-yellow-100 text-yellow-700'
-                            : lesson.status === 'failed'
-                            ? 'bg-red-100 text-red-700'
-                            : 'bg-gray-100 text-gray-700'
-                        }`}>
-                          {getStatusIcon(lesson.status)}
-                          <span className="capitalize">{lesson.status}</span>
-                        </span>
-                        <span className="text-xs text-gray-400">
-                          {new Date(lesson.created_at).toLocaleDateString()}
-                        </span>
-                      </div>
-                    </div>
+                    <MemoLessonCard key={lesson.id} lesson={lesson} index={index} onClick={handleNavigate(lesson.id)} />
                   ))}
                 </div>
               )}

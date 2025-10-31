@@ -11,6 +11,17 @@ const compat = new FlatCompat({
 
 const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
+  {
+    files: ["src/domains/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": ["error", {
+        patterns: [
+          { group: ["@/app/*"], message: "Domain layer must not import app layer" },
+          { group: ["@/lib/supabase/*"], message: "Domain layer must not depend on infrastructure; use infrastructure adapters" }
+        ]
+      }]
+    }
+  }
 ];
 
 export default eslintConfig;

@@ -8,7 +8,7 @@ echo ""
 API_KEY=$(grep "LLM_API_KEY_OR_MOCK" .env | cut -d= -f2)
 
 if [ "$API_KEY" = "MOCK" ]; then
-    echo "❌ API key is set to MOCK"
+    echo " API key is set to MOCK"
     echo "Please update .env with your real OpenAI API key"
     exit 1
 fi
@@ -25,14 +25,14 @@ http_code=$(echo "$response" | tail -n1)
 body=$(echo "$response" | head -n-1)
 
 if [ "$http_code" = "200" ]; then
-    echo "✅ API key is valid!"
+    echo " API key is valid!"
     echo ""
     echo "Available models (first 3):"
     echo "$body" | grep -o '"id":"[^"]*"' | head -3
     echo ""
     echo "You can now use the real OpenAI API."
 elif [ "$http_code" = "401" ]; then
-    echo "❌ API key is INVALID (Unauthorized)"
+    echo " API key is INVALID (Unauthorized)"
     echo ""
     echo "Possible issues:"
     echo "  1. Key is expired or revoked"
@@ -43,10 +43,10 @@ elif [ "$http_code" = "401" ]; then
     echo "  - Create a new API key"
     echo "  - Update .env with the new key"
 elif [ "$http_code" = "429" ]; then
-    echo "⚠️  Rate limit exceeded"
+    echo "  Rate limit exceeded"
     echo "Wait a few minutes and try again"
 else
-    echo "❌ Error: HTTP $http_code"
+    echo " Error: HTTP $http_code"
     echo "Response: $body"
 fi
 

@@ -4,51 +4,6 @@ module.exports = {
     './src/app/**/*.{js,ts,jsx,tsx,mdx}',
     './src/components/**/*.{js,ts,jsx,tsx,mdx}',
   ],
-  safelist: [
-    // Core layout and spacing
-    'p-2', 'p-4', 'p-6', 'p-8',
-    'm-2', 'm-4', 'm-6', 'm-8',
-    'mx-auto', 'my-2', 'my-4',
-    'mt-2', 'mt-4', 'mb-2', 'mb-4',
-    'space-x-2', 'space-x-4', 'space-y-2', 'space-y-4',
-    
-    // Sizing
-    'w-6', 'w-10', 'w-12', 'w-16', 'h-6', 'h-10', 'h-12', 'h-16',
-    'max-w-sm', 'max-w-md', 'max-w-lg', 'max-w-xl',
-    'min-h-screen',
-    
-    // Flexbox and Grid
-    'flex', 'flex-shrink-0', 'items-center', 'justify-center',
-    'grid', 'grid-cols-1', 'grid-cols-2', 'gap-4',
-    
-    // Colors - backgrounds
-    'bg-white', 'bg-gray-50', 'bg-gray-100', 'bg-gray-500',
-    'bg-blue-50', 'bg-blue-500', 'bg-green-50', 'bg-green-500',
-    'bg-red-50', 'bg-red-500', 'bg-yellow-50',
-    
-    // Colors - text
-    'text-black', 'text-white', 'text-gray-500', 'text-gray-700',
-    'text-blue-500', 'text-blue-800', 'text-green-500', 'text-green-800',
-    'text-red-500', 'text-yellow-800',
-    'text-sm', 'text-lg', 'text-xl', 'text-2xl',
-    
-    // Borders and rounded
-    'border', 'border-2', 'border-blue-200', 'border-green-200', 'border-red-200', 'border-yellow-200',
-    'rounded', 'rounded-lg', 'rounded-xl', 'rounded-full',
-    
-    // Shadows and effects
-    'shadow-md', 'shadow-lg',
-    
-    // Font styles
-    'font-medium', 'font-semibold', 'font-bold',
-    'text-center',
-    
-    // Hover states
-    'hover:bg-blue-700',
-    
-    // Animations
-    'animate-spin',
-  ],
   theme: {
     extend: {
       colors: {

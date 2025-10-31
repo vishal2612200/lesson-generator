@@ -5,8 +5,8 @@ import type * as Preset from '@docusaurus/preset-classic';
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
 const config: Config = {
-  title: 'My Site',
-  tagline: 'Dinosaurs are cool',
+  title: 'AI Lesson Generator',
+  tagline: 'Production-ready AI system for generating interactive educational content',
   favicon: 'img/favicon.ico',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
@@ -22,8 +22,8 @@ const config: Config = {
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
-  organizationName: 'facebook', // Usually your GitHub org/user name.
-  projectName: 'docusaurus', // Usually your repo name.
+  organizationName: 'your-username', // Usually your GitHub org/user name.
+  projectName: 'lesson_generator', // Usually your repo name.
 
   onBrokenLinks: 'warn',
 
@@ -66,9 +66,9 @@ const config: Config = {
       items: [
         {
           type: 'docSidebar',
-          sidebarId: 'tutorialSidebar',
+          sidebarId: 'docsSidebar',
           position: 'left',
-          label: 'Docs',
+          label: 'Documentation',
         },
         {
           href: 'https://github.com/your-username/lesson_generator',
@@ -81,24 +81,36 @@ const config: Config = {
       style: 'dark',
       links: [
         {
-          title: 'Docs',
+          title: 'Documentation',
           items: [
             {
-              label: 'Architecture',
-              to: '/docs/migrated/ARCHITECTURE',
+              label: 'Getting Started',
+              to: '/docs/getting-started/quickstart',
             },
             {
-              label: 'Setup',
-              to: '/docs/migrated/SETUP',
+              label: 'Architecture',
+              to: '/docs/architecture/overview',
+            },
+            {
+              label: 'API Reference',
+              to: '/docs/api/rest-api',
             },
           ],
         },
         {
-          title: 'More',
+          title: 'Resources',
           items: [
             {
               label: 'GitHub',
               href: 'https://github.com/your-username/lesson_generator',
+            },
+            {
+              label: 'User Guide',
+              to: '/docs/user-guide/creating-lessons',
+            },
+            {
+              label: 'Development',
+              to: '/docs/development/setup',
             },
           ],
         },

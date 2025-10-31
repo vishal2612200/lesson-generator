@@ -1,4 +1,4 @@
-import { generateLesson } from './generator'
+import { generateLesson } from './generation/generator'
 import { supabaseAdmin } from '@/lib/supabase/server'
 
 export async function handler(event: any) {

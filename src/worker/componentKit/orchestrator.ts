@@ -8,7 +8,7 @@ import { renderPreview } from "./preview";
 import { evaluateSSRHtml } from "./evaluator";
 import { attemptRepair } from "./repair";
 import type { PedagogyProfile } from "./schemas";
-import { logger, logJobStart, logError } from "../logger";
+import { logger, logJobStart, logError } from "@/worker/common/logger";
 
 export type OrchestrateOptions = {
   topic: string;
@@ -46,9 +46,16 @@ export async function orchestrateComponentGeneration(opts: OrchestrateOptions): 
 
     let lastDiagnostics: any = {};
     let itemIndex = 0;
+    // Start after planner (which is 1), so first author trace is 2
+    let nextAttemptNumber = 2;
+    const successfulComponents: Array<{ componentId: string; tsxSource: string; compiledJs?: string; name: string }> = [];
 
     for (const item of plan.items) {
       itemIndex++;
+      // Assign unique attempt_number for this component
+      // First component gets attempt_number: 2, second gets next available, etc.
+      const authorAttemptNumber = nextAttemptNumber;
+      
       logger.info(`🔧 Processing: ${item.name} (${itemIndex}/${plan.items.length})`, {
         operation: 'item_processing',
         stage: 'authoring',
@@ -57,6 +64,7 @@ export async function orchestrateComponentGeneration(opts: OrchestrateOptions): 
           learningObjective: item.learningObjective,
           itemIndex,
           totalItems: plan.items.length,
+          attemptNumber: authorAttemptNumber,
         },
       });
 
@@ -67,7 +75,9 @@ export async function orchestrateComponentGeneration(opts: OrchestrateOptions): 
           learningObjective: item.learningObjective, 
           topic: opts.topic,
           pedagogy: plan.pedagogy,
-          lessonId: opts.lessonId
+          lessonId: opts.lessonId,
+          attemptNumber: authorAttemptNumber,
+          componentIndex: itemIndex - 1, // Convert to 0-based index
         });
         authorTimer(true, { 
           tsxLength: authored.componentTsx.length,
@@ -102,32 +112,79 @@ export async function orchestrateComponentGeneration(opts: OrchestrateOptions): 
         // Compile with repairs
         let src = authored.componentTsx;
         let compileRes = compileComponentTsx({ tsxSource: src });
-        let attempts = 0;
+        let repairAttempts = 0;
         const maxRepairs = opts.maxRepairs ?? 2;
 
         // Starting compilation with repair attempts - no need to log this detail
 
-        while (!compileRes.success && attempts < maxRepairs) {
-          attempts += 1;
-          logger.info(`🔨 Repair attempt ${attempts}/${maxRepairs} for ${item.name}`, {
+        while (!compileRes.success && repairAttempts < maxRepairs) {
+          repairAttempts += 1;
+          logger.info(`🔨 Repair attempt ${repairAttempts}/${maxRepairs} for ${item.name}`, {
             operation: 'repair_attempt',
             stage: 'compilation',
             metadata: {
               itemName: item.name,
-              attempt: attempts,
+              attempt: repairAttempts,
               errorCount: compileRes.errors.length,
               errors: compileRes.errors.slice(0, 2), // Log first 2 errors
             },
           });
 
           const repairTimer = logger.startTimer('repair_attempt');
+          const errorsBeforeRepair = compileRes.errors;
           src = attemptRepair(src, { errors: compileRes.errors });
           compileRes = compileComponentTsx({ tsxSource: src });
           repairTimer(compileRes.success, { 
-            attempt: attempts,
+            attempt: repairAttempts,
             errorCount: compileRes.errors.length,
           });
+
+          // Insert trace for repair attempt
+          if (opts.lessonId) {
+            try {
+              const { supabaseAdmin } = await import('../../lib/supabase/server');
+              const repairAttemptNumber = authorAttemptNumber + repairAttempts; // Sequential after author trace
+              
+              const { error: repairTraceError } = await (supabaseAdmin.from('traces') as any).insert({
+                lesson_id: opts.lessonId,
+                attempt_number: repairAttemptNumber,
+                prompt: `Repair attempt ${repairAttempts} for component "${item.name}"`,
+                model: 'repair-agent',
+                response: `Repaired component after ${errorsBeforeRepair.length} compilation errors`,
+                tokens: null,
+                validation: {
+                  passed: true,
+                  errors: [],
+                  component: {
+                    name: item.name,
+                    index: itemIndex - 1,
+                    learningObjective: item.learningObjective,
+                  },
+                  repairAttempt: repairAttempts,
+                },
+                compilation: {
+                  success: compileRes.success,
+                  tsc_errors: compileRes.success ? [] : compileRes.errors,
+                  original_errors: errorsBeforeRepair,
+                  repaired_code_length: src.length,
+                },
+              });
+              
+              if (repairTraceError) {
+                console.error(`[Orchestrator]  Failed to insert repair trace for attempt ${repairAttempts}:`, repairTraceError);
+              } else {
+                console.log(`[Orchestrator]  Repair trace inserted: attempt_number ${repairAttemptNumber}, repair attempt ${repairAttempts}`);
+              }
+            } catch (repairTraceErr) {
+              console.error(`[Orchestrator]  Exception inserting repair trace:`, repairTraceErr);
+            }
+          }
         }
+        
+        // Update nextAttemptNumber for the next component: author attempt + 1 (for successful completion) + repair attempts
+        // If repairs occurred, we've already used authorAttemptNumber + 1 through authorAttemptNumber + repairAttempts
+        // If no repairs, next component starts at authorAttemptNumber + 1
+        nextAttemptNumber = authorAttemptNumber + repairAttempts + 1;
 
         if (!compileRes.success) {
           logger.error('Compilation failed after all repair attempts', {
@@ -137,21 +194,23 @@ export async function orchestrateComponentGeneration(opts: OrchestrateOptions): 
             errorCode: 'COMPILATION_FAILED',
             metadata: {
               itemName: item.name,
-              totalAttempts: attempts + 1,
+              totalAttempts: repairAttempts + 1,
               finalErrorCount: compileRes.errors.length,
               errors: compileRes.errors,
             },
           });
           lastDiagnostics.compile = compileRes.errors;
+          // Still update nextAttemptNumber even on failure
+          nextAttemptNumber = authorAttemptNumber + repairAttempts + 1;
           continue;
         }
 
-        logger.info(`✅ Compilation successful: ${item.name}`, {
+        logger.info(` Compilation successful: ${item.name}`, {
           operation: 'compilation_success',
           stage: 'compilation',
           metadata: {
             itemName: item.name,
-            totalAttempts: attempts + 1,
+            totalAttempts: repairAttempts + 1,
             emittedFiles: compileRes.emittedFiles?.length || 0,
           },
         });
@@ -207,7 +266,7 @@ export async function orchestrateComponentGeneration(opts: OrchestrateOptions): 
           continue;
         }
 
-        logger.info(`🎯 Evaluation passed: ${item.name} (score: ${evalRes.score.toFixed(2)})`, {
+        logger.info(` Evaluation passed: ${item.name} (score: ${evalRes.score.toFixed(2)})`, {
           operation: 'evaluation_success',
           stage: 'evaluation',
           metadata: {
@@ -282,7 +341,7 @@ export async function orchestrateComponentGeneration(opts: OrchestrateOptions): 
           }
         }
 
-        logger.info(`🎉 Component generated successfully: ${item.name}`, {
+        logger.info(` Component generated successfully: ${item.name}`, {
           operation: 'component_generation_success',
           stage: 'complete',
           metadata: {
@@ -295,9 +354,15 @@ export async function orchestrateComponentGeneration(opts: OrchestrateOptions): 
           },
         });
 
-        endJob();
+        // Collect successful component for later combination
+        successfulComponents.push({
+          componentId: hash,
+          tsxSource: src,
+          compiledJs,
+          name: item.name,
+        });
 
-        return { success: true, componentId: hash, tsxSource: src, compiledJs };
+        // Continue to next component instead of returning early
 
       } catch (error) {
         logger.error('Error processing planning item', {
@@ -320,20 +385,47 @@ export async function orchestrateComponentGeneration(opts: OrchestrateOptions): 
       }
     }
 
-    logger.error('All planning items failed', {
-      operation: 'all_items_failed',
+    // After processing all components, check if we have any successful ones
+    if (successfulComponents.length === 0) {
+      logger.error('All planning items failed', {
+        operation: 'all_items_failed',
+        stage: 'complete',
+        errorType: 'GenerationError',
+        errorCode: 'ALL_ITEMS_FAILED',
+        metadata: {
+          totalItems: plan.items.length,
+          diagnostics: lastDiagnostics,
+        },
+      });
+
+      endJob();
+
+      return { success: false, diagnostics: lastDiagnostics };
+    }
+
+    // Use the last successful component (or could combine all components)
+    // For now, we'll use the last one to maintain backward compatibility
+    const finalComponent = successfulComponents[successfulComponents.length - 1];
+    
+    logger.info(` Completed processing ${successfulComponents.length}/${plan.items.length} components successfully`, {
+      operation: 'orchestration_complete',
       stage: 'complete',
-      errorType: 'GenerationError',
-      errorCode: 'ALL_ITEMS_FAILED',
       metadata: {
         totalItems: plan.items.length,
-        diagnostics: lastDiagnostics,
+        successfulItems: successfulComponents.length,
+        successfulComponentNames: successfulComponents.map(c => c.name),
+        usingComponent: finalComponent.name,
       },
     });
 
     endJob();
 
-    return { success: false, diagnostics: lastDiagnostics };
+    return { 
+      success: true, 
+      componentId: finalComponent.componentId, 
+      tsxSource: finalComponent.tsxSource, 
+      compiledJs: finalComponent.compiledJs,
+    };
 
   } catch (error) {
     logError('orchestrator', error instanceof Error ? error : new Error(String(error)), {

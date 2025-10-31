@@ -12,12 +12,12 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
 if (!supabaseUrl) {
-  console.error('❌ SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL is required')
+  console.error(' SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL is required')
   process.exit(1)
 }
 
 if (!supabaseServiceRoleKey) {
-  console.error('❌ SUPABASE_SERVICE_ROLE_KEY is required')
+  console.error(' SUPABASE_SERVICE_ROLE_KEY is required')
   process.exit(1)
 }
 
@@ -34,13 +34,13 @@ async function checkTraces(lessonId?: string) {
       .limit(1)
 
     if (tablesError) {
-      console.error('❌ Error accessing traces table:', tablesError.message)
+      console.error(' Error accessing traces table:', tablesError.message)
       console.log('\n💡 The traces table might not exist. Run:')
       console.log('   psql $DATABASE_URL -f supabase/migrations/001_initial_schema.sql')
       return
     }
 
-    console.log('✅ Traces table exists\n')
+    console.log(' Traces table exists\n')
 
     if (lessonId) {
       // Check specific lesson
@@ -53,7 +53,7 @@ async function checkTraces(lessonId?: string) {
         .single()
 
       if (lessonError || !lesson) {
-        console.error('❌ Lesson not found:', lessonId)
+        console.error(' Lesson not found:', lessonId)
         return
       }
 
@@ -70,12 +70,12 @@ async function checkTraces(lessonId?: string) {
         .order('attempt_number', { ascending: true })
 
       if (tracesError) {
-        console.error('❌ Error fetching traces:', tracesError.message)
+        console.error(' Error fetching traces:', tracesError.message)
         return
       }
 
       if (!traces || traces.length === 0) {
-        console.log('❌ No traces found for this lesson')
+        console.log(' No traces found for this lesson')
         console.log('\n💡 Possible reasons:')
         console.log('   1. Lesson was created before tracing was implemented')
         console.log('   2. Generation worker is not saving traces')
@@ -87,13 +87,13 @@ async function checkTraces(lessonId?: string) {
         return
       }
 
-      console.log(`✅ Found ${traces.length} trace(s):\n`)
+      console.log(` Found ${traces.length} trace(s):\n`)
 
       traces.forEach((trace: any) => {
         const status = trace.compilation?.success
-          ? '✅ Success'
+          ? ' Success'
           : !trace.validation?.passed
-          ? '⚠️  Validation Failed'
+          ? '  Validation Failed'
           : '🔧 Compilation Failed'
 
         console.log(`   Attempt ${trace.attempt_number}: ${status}`)
@@ -113,7 +113,7 @@ async function checkTraces(lessonId?: string) {
         .limit(20)
 
       if (lessonsError || !lessons) {
-        console.error('❌ Error fetching lessons:', lessonsError)
+        console.error(' Error fetching lessons:', lessonsError)
         return
       }
 
@@ -126,7 +126,7 @@ async function checkTraces(lessonId?: string) {
           .eq('lesson_id', lesson.id)
 
         const traceCount = traces?.length || 0
-        const icon = traceCount > 0 ? '✅' : '❌'
+        const icon = traceCount > 0 ? '' : ''
 
         console.log(`${icon} ${lesson.title.substring(0, 50)}...`)
         console.log(`   ID: ${lesson.id}`)
@@ -143,7 +143,7 @@ async function checkTraces(lessonId?: string) {
       console.log(`\n📈 Total traces in database: ${allTraces?.length || 0}`)
 
       if (!allTraces || allTraces.length === 0) {
-        console.log('\n❌ No traces found in the database!')
+        console.log('\n No traces found in the database!')
         console.log('\n💡 This means traces are NOT being saved.')
         console.log('\n🔧 Troubleshooting:')
         console.log('   1. Check if the worker is running')
@@ -154,7 +154,7 @@ async function checkTraces(lessonId?: string) {
       }
     }
   } catch (error) {
-    console.error('❌ Unexpected error:', error)
+    console.error(' Unexpected error:', error)
   }
 }
 
@@ -163,11 +163,11 @@ const lessonId = process.argv[2]
 
 checkTraces(lessonId)
   .then(() => {
-    console.log('\n✅ Check complete')
+    console.log('\n Check complete')
     process.exit(0)
   })
   .catch((error) => {
-    console.error('\n❌ Script failed:', error)
+    console.error('\n Script failed:', error)
     process.exit(1)
   })
 

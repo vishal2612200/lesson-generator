@@ -5,6 +5,7 @@ module.exports = {
   testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
+    '^@domains/(.*)$': '<rootDir>/src/domains/$1',
   },
   collectCoverageFrom: [
     'src/**/*.ts',

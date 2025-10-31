@@ -1,6 +1,85 @@
 import { callLLM } from "../llm";
 import { ComponentPlan, ComponentPlanSchema, PedagogyProfile, ComponentArtifact, ComponentMetaSchema } from "./schemas";
 
+/**
+ * Extract JSON from LLM response using multiple strategies with progressive fallbacks
+ */
+function extractJsonFromResponse(content: string): string | null {
+  // Strategy 1: Try parsing entire response as JSON
+  try {
+    const parsed = JSON.parse(content.trim());
+    return JSON.stringify(parsed);
+  } catch {}
+
+  // Strategy 2: Find JSON code blocks (similar to extractTypeScriptFromResponse)
+  const fence = '```';
+  let start = -1;
+  let best: { s: number; e: number } | null = null;
+  
+  for (let i = 0; i < content.length - 2; i++) {
+    if (content.slice(i, i + 3) === fence) {
+      if (start === -1) {
+        start = i + 3;
+      } else {
+        const end = i;
+        if (!best || end - start > best.e - best.s) {
+          best = { s: start, e: end };
+        }
+        start = -1;
+      }
+    }
+  }
+  
+  if (best) {
+    let block = content.slice(best.s, best.e);
+    // Strip optional language header on first line (json|typescript|tsx|ts)
+    const langHeaders = ['json', 'typescript', 'tsx', 'ts'];
+    for (const lang of langHeaders) {
+      if (block.startsWith(`${lang}\n`)) {
+        block = block.slice(lang.length + 1);
+        break;
+      }
+    }
+    try {
+      const parsed = JSON.parse(block.trim());
+      return JSON.stringify(parsed);
+    } catch {}
+  }
+
+  // Strategy 3: Find JSON object boundaries by tracking brace counts
+  let braceCount = 0;
+  start = -1;
+  const chars = content.split('');
+  
+  for (let i = 0; i < chars.length; i++) {
+    if (chars[i] === '{') {
+      if (start === -1) start = i;
+      braceCount++;
+    } else if (chars[i] === '}') {
+      braceCount--;
+      if (braceCount === 0 && start !== -1) {
+        try {
+          const jsonStr = content.slice(start, i + 1);
+          const parsed = JSON.parse(jsonStr);
+          return JSON.stringify(parsed);
+        } catch {}
+        start = -1;
+      }
+    }
+  }
+  
+  // Strategy 4: Fallback to regex (last resort)
+  const match = content.match(/\{[\s\S]*\}/);
+  if (match) {
+    try {
+      const parsed = JSON.parse(match[0]);
+      return JSON.stringify(parsed);
+    } catch {}
+  }
+  
+  return null;
+}
+
 export type PlannerAgentInput = {
   topic: string;
   pedagogy: PedagogyProfile;
@@ -86,18 +165,17 @@ Return ONLY valid JSON with this structure:
       });
       
       if (traceError) {
-        console.error('[PlannerAgent] ❌ Failed to insert trace:', traceError);
+        console.error('[PlannerAgent]  Failed to insert trace:', traceError);
       } else {
-        console.log('[PlannerAgent] ✅ Trace inserted successfully for lesson:', input.lessonId);
+        console.log('[PlannerAgent]  Trace inserted successfully for lesson:', input.lessonId);
       }
     } catch (traceErr) {
-      console.error('[PlannerAgent] ❌ Exception inserting trace:', traceErr);
+      console.error('[PlannerAgent]  Exception inserting trace:', traceErr);
     }
   }
   
-  // Extract last JSON blob
-  const match = resp.content.match(/\{[\s\S]*\}/);
-  const raw = match ? match[0] : `{"topic":"${input.topic}","items":[{"name":"IntroCard","learningObjective":"Introduce core idea"}]}`;
+  // Extract JSON using multi-strategy approach
+  const raw = extractJsonFromResponse(resp.content) ?? `{"topic":"${input.topic}","items":[{"name":"IntroCard","learningObjective":"Introduce core idea"}]}`;
   const plan = ComponentPlanSchema.safeParse({
     topic: input.topic,
     pedagogy: input.pedagogy,
@@ -119,10 +197,14 @@ export type AuthorAgentInput = {
   topic: string;
   pedagogy: PedagogyProfile;
   lessonId?: string;
+  attemptNumber?: number; // Unique attempt_number for this component
+  componentIndex?: number; // Index of this component in the plan
 };
 
+import { getSelectedPersona, getPersonaIntro } from '../content/persona'
+
 export async function authorAgent(input: AuthorAgentInput): Promise<ComponentArtifact> {
-  const prompt = `You are an expert educational developer creating an INTERACTIVE React learning component.
+  const prompt = `${getPersonaIntro(getSelectedPersona())}
 
 === LESSON DETAILS ===
 MAIN TOPIC: "${input.topic}"
@@ -222,14 +304,47 @@ IF this is a DEMONSTRATION (topic contains "example", "show", "visualize"):
    - Show progress and achievement
    - Make success feel rewarding
 
+=== SVG DIAGRAM REQUIREMENTS ===
+- Ground the diagram in 2–4 Topic Entities (from MAIN TOPIC / learning objective).
+- Show at least one relationship (flow, dependency, cause→effect) using arrows or positioning.
+- Label all meaningful shapes; include <title>/<desc>, aria-labelledby on the <svg>.
+- If visual encodings (color/shape) carry meaning, include a minimal legend.
+- Add a short code comment mapping entities → SVG elements (IDs/classes).
+- Include one micro-interaction that reveals, focuses, or toggles a conceptually meaningful state.
+
+SVG DIAGRAM GENERATOR (strict)
+1) Extract 2–4 Topic Entities from the Topic (nouns/states/actors/variables). List them.
+2) Pick ONE pattern:
+   - Process Flow (A→B→C), 
+   - Compare/Contrast (X vs Y), 
+   - Part–Whole (whole with labeled parts).
+3) Create a Mapping Table (comment-only, not rendered):
+   // entity: "<EntityName>" -> <shape> <selector>, color <hex>
+   // relationship: "<A> -> <B>" -> <path> arrow
+4) Render the diagram:
+   - viewBox ≥ 320×200; className="w-full h-auto max-w-xl"; preserveAspectRatio="xMidYMid meet"
+   - <title>/<desc> + aria-labelledby on <svg>
+   - Group by <g data-entity="...">; label every meaningful mark with <text>
+   - If color/shape encodes meaning, include a minimal legend
+   - One micro-interaction that highlights a concept (hover/click toggles active state)
+5) Alignment checks (must pass):
+   - Labels use textAnchor="middle" and dominantBaseline="middle" and contain ≥2 exact Topic words
+   - At least one relationship drawn with an arrow or ordered alignment
+   - No decorative shapes without labels
+   - Coordinates arranged on a simple grid (x in {40,160,280,400}, y in {40,120,200}) with ≥16px outer margin
+   - Keep all <text> within the viewBox with ≥16px margin; truncate labels >18 chars (append …)
+6) Optional clipping for complex diagrams:
+   - Use <clipPath> to constrain overflowing groups (legend or dense parts)
+
 === CONSTRAINTS ===
 - NO fetch, setTimeout, setInterval, or async operations
 - NO document/window/DOM access (no document.title, window.alert, etc.)
 - NO external URLs or image sources
 - Use ONLY Tailwind CSS classes for styling
-- Use inline SVG for any graphics
+- Use inline SVG for any graphics with viewBox ≥ 320×200, <title>/<desc>, aria-labelledby; group with <g>; label marks with <text>; no external URLs/images
 - Font size minimum: ${input.pedagogy.accessibility.minFontSizePx}px
 - MUST start with 'use client'; directive
+- Declare all variables/constants BEFORE using them (avoid temporal dead zone errors)
 
 === OUTPUT FORMAT ===
 First, output your TSX component in a fenced code block:
@@ -256,17 +371,27 @@ Make this component engaging, interactive, and truly educational for "${input.to
   if (input.lessonId) {
     try {
       const { supabaseAdmin } = await import('../../lib/supabase/server');
+      const attemptNumber = input.attemptNumber ?? 2; // Fallback to 2 for backward compatibility
+      
+      // Store component metadata in validation field
+      const validation = {
+        passed: true,
+        errors: [],
+        component: input.componentIndex !== undefined ? {
+          name: input.name,
+          index: input.componentIndex,
+          learningObjective: input.learningObjective,
+        } : undefined,
+      };
+      
       const { error: traceError } = await (supabaseAdmin.from('traces') as any).insert({
         lesson_id: input.lessonId,
-        attempt_number: 2,
+        attempt_number: attemptNumber,
         prompt,
         model,
         response: resp.content,
         tokens: resp.tokens,
-        validation: {
-          passed: true,
-          errors: [],
-        },
+        validation,
         compilation: {
           success: true,
           tsc_errors: [],
@@ -274,18 +399,43 @@ Make this component engaging, interactive, and truly educational for "${input.to
       });
       
       if (traceError) {
-        console.error('[AuthorAgent] ❌ Failed to insert trace:', traceError);
+        console.error('[AuthorAgent]  Failed to insert trace:', traceError);
       } else {
-        console.log('[AuthorAgent] ✅ Trace inserted successfully for lesson:', input.lessonId);
+        console.log(`[AuthorAgent]  Trace inserted successfully for lesson: ${input.lessonId}, attempt_number: ${attemptNumber}, component: ${input.name}`);
       }
     } catch (traceErr) {
-      console.error('[AuthorAgent] ❌ Exception inserting trace:', traceErr);
+      console.error('[AuthorAgent]  Exception inserting trace:', traceErr);
     }
   }
   
-  const blocks = Array.from(resp.content.matchAll(/```(tsx|typescript|ts)?\n([\s\S]*?)\n```/g)).map(m => (m[2] || '').trim());
+  // Extract code blocks (similar to extractTypeScriptFromResponse non-regex approach)
+  const fence = '```';
+  const blocks: string[] = [];
+  let blockStart = -1;
+  
+  for (let i = 0; i < resp.content.length - 2; i++) {
+    if (resp.content.slice(i, i + 3) === fence) {
+      if (blockStart === -1) {
+        blockStart = i + 3;
+      } else {
+        const end = i;
+        let block = resp.content.slice(blockStart, end);
+        // Strip optional language header on first line
+        const langHeaders = ['tsx', 'typescript', 'ts', 'json'];
+        for (const lang of langHeaders) {
+          if (block.startsWith(`${lang}\n`)) {
+            block = block.slice(lang.length + 1);
+            break;
+          }
+        }
+        blocks.push(block.trim());
+        blockStart = -1;
+      }
+    }
+  }
+  
   const componentTsx = blocks[0] || resp.content.trim();
-  const metaRaw = blocks[1] || '{}';
+  const metaRaw = extractJsonFromResponse(blocks[1] || blocks[blocks.length - 1] || '{}') || '{}';
   let meta: any;
   try { meta = JSON.parse(metaRaw); } catch { meta = { name: input.name, learningObjective: input.learningObjective, interactivityLevel: "low", propsSchemaJson: JSON.stringify({ type: "object", properties: {} }) }; }
   const parsedMeta = ComponentMetaSchema.safeParse(meta);

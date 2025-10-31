@@ -1,49 +1,48 @@
 import 'dotenv/config'
 import { supabaseAdmin } from '@/lib/supabase/server'
-import { generateLessonHybrid } from './hybridGenerator'
+import type { Database } from '@/types/database'
+import { generateLessonHybrid } from './generation/hybridGenerator'
 import { orchestrateComponentGeneration } from './componentKit/orchestrator'
-import { logger, logJobStart, logError } from './logger'
+import { logger, logJobStart, logError } from './common/logger'
 
 export async function processQueue(): Promise<void> {
-  // Find one queued lesson (id only to minimize payload)
-  const { data: lessons, error } = await (supabaseAdmin
-    .from('lessons') as any)
-    .select('id,title')
-    .eq('status', 'queued')
-    .order('created_at', { ascending: true })
-    .limit(1)
+  // Try atomic claim via RPC; fallback to select+update if RPC unavailable
+  let claimed: any | null = null
+  try {
+    const rpcRes = await supabaseAdmin
+      .rpc('claim_next_lesson')
+      .select('id,title,outline,status')
+      .single()
+    if (!rpcRes.error) {
+      claimed = rpcRes.data
+    }
+  } catch {}
 
-  if (error) {
-    logger.error('Error fetching queued lessons', {
-      operation: 'queue_fetch_error',
-      stage: 'queue_processing',
-      errorType: 'DatabaseError',
-      errorCode: 'QUEUE_FETCH_ERROR',
-      metadata: { error: error.message || error },
-    });
-    return
+  if (!claimed) {
+    // Fallback: Find one queued lesson (id only), then attempt conditional update
+    const { data: lessons, error } = await supabaseAdmin
+      .from('lessons')
+      .select('id')
+      .eq('status', 'queued')
+      .order('created_at', { ascending: true })
+      .limit(1)
+
+    if (error || !lessons || lessons.length === 0) {
+      return
+    }
+
+    const lesson = (lessons as Pick<Database['public']['Tables']['lessons']['Row'], 'id'>[])[0]
+    const { data: claimedRes } = await (supabaseAdmin as any)
+      .from('lessons')
+      .update({ status: 'generating' })
+      .eq('id', lesson.id)
+      .eq('status', 'queued')
+      .select('id,title,outline,status')
+      .single()
+    claimed = claimedRes
   }
 
-  if (!lessons || lessons.length === 0) {
-    // No lessons to process - silent return
-    return
-  }
-
-  const lesson = lessons[0]
-
-  // Atomically claim this job: queued -> processing
-  const { data: claimed, error: claimError } = await (supabaseAdmin
-    .from('lessons') as any)
-    .update({ status: 'generating' })
-    .eq('id', lesson.id)
-    .eq('status', 'queued')
-    .select('id,title,outline,status')
-    .single()
-
-  if (claimError || !claimed) {
-    // Another worker claimed it; skip this cycle - silent return
-    return
-  }
+  if (!claimed) return
 
   const endJob = logJobStart(claimed.id, 'lesson_generation');
 
@@ -66,20 +65,32 @@ export async function processQueue(): Promise<void> {
     if (mode === 'legacy') {
       await generateLessonHybrid(claimed.id)
     } else {
-      // Infer pedagogy from topic keywords
+      // Infer pedagogy from topic keywords using keyword sets
+      const ADVANCED_KEYWORDS = new Set([
+        'javascript', 'typescript', 'react', 'programming', 'code', 'algorithm',
+        'advanced', 'college', 'university', 'professional', 'software engineering'
+      ]);
+      
+      const INTERMEDIATE_KEYWORDS = new Set([
+        'algebra', 'equation', 'geometry', 'chemistry', 'physics', 'biology',
+        'intermediate', 'high school', 'middle school'
+      ]);
+      
       const topicLower = claimed.outline.toLowerCase();
-      const isAdvanced = /javascript|typescript|react|programming|code|algorithm|advanced|college|university|professional/.test(topicLower);
-      const isIntermediate = /algebra|equation|geometry|chemistry|physics|biology|intermediate|high school/.test(topicLower);
+      const words = topicLower.split(/\s+/);
+      
+      const hasAdvanced = words.some((word: string) => ADVANCED_KEYWORDS.has(word));
+      const hasIntermediate = words.some((word: string) => INTERMEDIATE_KEYWORDS.has(word));
       
       let gradeBand: 'K-2' | '3-5' | '6-8' | '9-12' = '3-5';
       let readingLevel: 'emergent' | 'basic' | 'intermediate' | 'advanced' = 'basic';
       let cognitiveLoad: 'low' | 'medium' | 'high' = 'low';
       
-      if (isAdvanced) {
+      if (hasAdvanced) {
         gradeBand = '9-12';
         readingLevel = 'advanced';
         cognitiveLoad = 'high';
-      } else if (isIntermediate) {
+      } else if (hasIntermediate) {
         gradeBand = '6-8';
         readingLevel = 'intermediate';
         cognitiveLoad = 'medium';
@@ -154,7 +165,7 @@ export async function processQueue(): Promise<void> {
       }
     }
     
-    logger.info(`✅ Lesson generation completed successfully: ${claimed.title}`, {
+    logger.info(` Lesson generation completed successfully: ${claimed.title}`, {
       operation: 'generation_success',
       stage: 'generation',
       metadata: {
@@ -172,7 +183,7 @@ export async function processQueue(): Promise<void> {
       stage: 'generation',
     });
 
-    logger.error(`❌ Lesson generation failed: ${claimed.title}`, {
+    logger.error(` Lesson generation failed: ${claimed.title}`, {
       operation: 'generation_failed',
       stage: 'generation',
       metadata: {

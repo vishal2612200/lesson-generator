@@ -1,0 +1,1 @@
+export { generateLessonHybrid } from './hybridGenerator'
